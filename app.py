@@ -25,9 +25,9 @@ app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": ["https://quickcase.vercel.app"]}})
 
 # --- AYARLAR ---
-db_uri = os.getenv('DATABASE_URL', 'sqlite:///quickcase.db')
+db_uri = os.getenv("DATABASE_URL", "sqlite:///quickcase.db")
 if db_uri.startswith("postgres://"):
-    db_uri = db_uri.replace("postgres://", "postgresql://", 1) # Heroku/Render fix
+    db_uri = db_uri.replace("postgres://", "postgresql://", 1)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = db_uri
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
