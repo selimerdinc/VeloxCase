@@ -20,7 +20,6 @@ MarkupSafe==3.0.3
 mdurl==0.1.2
 ordered-set==4.1.0
 packaging==25.0
-pi==0.1.2
 pillow==12.0.0
 pycparser==2.23
 Pygments==2.19.2
