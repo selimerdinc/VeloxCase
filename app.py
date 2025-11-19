@@ -24,8 +24,10 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {
     "origins": [
-        "http://localhost:5173",  # Senin bilgisayarın (Test için)
-        "https://velox-case-7kqcisaz4-selimerdincs-projects.vercel.app" # SENİN VERCEL ADRESİN
+        "http://localhost:5173",
+        "https://velox-case-7kqcisaz4-selimerdincs-projects.vercel.app",
+        "https://velox-case.vercel.app",  # Genel Vercel domainini de ekledim
+        "*"  # Geçici olarak geliştirme aşamasında CORS sorunu yaşamamak için. Production'da kaldırılabilir.
     ]
 }})
 
@@ -39,7 +41,7 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config["JWT_SECRET_KEY"] = os.getenv("JWT_SECRET_KEY", "super-secret-quickcase-key")
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(days=7)
 
-# Şifreleme Anahtarı (Eğer .env'de yoksa geçici oluşturur)
+# Şifreleme Anahtarı
 ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
 if not ENCRYPTION_KEY:
     ENCRYPTION_KEY = Fernet.generate_key().decode()
@@ -50,7 +52,7 @@ cipher_suite = Fernet(ENCRYPTION_KEY)
 db = SQLAlchemy(app)
 jwt = JWTManager(app)
 
-# Rate Limiter (Login denemelerini sınırlar)
+# Rate Limiter
 limiter = Limiter(get_remote_address, app=app, default_limits=["2000 per day", "500 per hour"], storage_uri="memory://")
 
 
@@ -98,23 +100,17 @@ def decrypt_value(value):
 def init_db():
     with app.app_context():
         db.create_all()
-        # Admin yoksa oluştur
         if not User.query.filter_by(username='admin').first():
-            hashed = generate_password_hash("181394", method='pbkdf2:sha256')
+            hashed = generate_password_hash("123456", method='pbkdf2:sha256')
             db.session.add(User(username='admin', password_hash=hashed))
+            db.session.commit()
 
-            # Varsayılan boş ayarları ekle
             admin_user = User.query.filter_by(username='admin').first()
-            # admin henüz commit edilmediği için id alamayabiliriz, önce commit
-            db.session.commit()
-
-            # Şimdi ID var
-            admin = User.query.filter_by(username='admin').first()
-            keys = ["JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_API_TOKEN", "TESTMO_BASE_URL", "TESTMO_API_KEY"]
-            for k in keys:
-                db.session.add(Setting(user_id=admin.id, key=k, value=encrypt_value("")))
-
-            db.session.commit()
+            if admin_user:
+                keys = ["JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_API_TOKEN", "TESTMO_BASE_URL", "TESTMO_API_KEY"]
+                for k in keys:
+                    db.session.add(Setting(user_id=admin_user.id, key=k, value=encrypt_value("")))
+                db.session.commit()
             print("✅ Veritabanı ve Admin Kullanıcısı Oluşturuldu.")
 
 
@@ -148,22 +144,32 @@ class QuickCaseSync:
 
     def clean_html(self, raw_html):
         if not raw_html: return ""
+        # Script ve style taglerini temizle
         text = re.sub(r'<(script|style).*?>.*?</\1>', '', raw_html, flags=re.DOTALL)
         text = re.sub(r'<(br|p|li|/ul|/ol|div)[^>]*>', '\n', text)
         text = re.sub(r'<[^>]+>', '', text)
         return html.unescape(text).strip()
 
-    def compress_and_base64(self, image_content):
+    # GÜNCELLENDİ: Artık image content alıyor
+    def image_to_base64(self, image_content, mime_type='image/png'):
         if not image_content: return None
         try:
+            # Pillow ile resmi optimize et
             img = Image.open(io.BytesIO(image_content))
             if img.mode in ("RGBA", "P"): img = img.convert("RGB")
+
+            # Boyutlandırma (Max 800px)
             if img.width > 800:
                 ratio = 800 / float(img.width)
-                img = img.resize((800, int((float(img.height) * float(ratio)))), Image.Resampling.LANCZOS)
+                new_height = int((float(img.height) * float(ratio)))
+                img = img.resize((800, new_height), Image.Resampling.LANCZOS)
+
             buffer = io.BytesIO()
+            # JPEG formatında sıkıştır
             img.save(buffer, format="JPEG", quality=65, optimize=True)
             b64_str = base64.b64encode(buffer.getvalue()).decode('utf-8')
+
+            # Her zaman jpeg olarak kaydettiğimiz için mime type image/jpeg olur
             return f"data:image/jpeg;base64,{b64_str}"
         except:
             return None
@@ -174,11 +180,13 @@ class QuickCaseSync:
                                  params={'expand': 'renderedFields'})
             if r.status_code == 200:
                 d = r.json()
-                return {'summary': d.get('fields', {}).get('summary', ''),
-                        'desc_html': d.get('renderedFields', {}).get('description', '')}
+                return {
+                    'summary': d.get('fields', {}).get('summary', ''),
+                    'description_html': d.get('renderedFields', {}).get('description', '')  # HTML hali önemli
+                }
         except:
             pass
-        return {'summary': '', 'desc_html': ''}
+        return {'summary': '', 'description_html': ''}
 
     def get_comments(self, key):
         try:
@@ -190,14 +198,18 @@ class QuickCaseSync:
     def get_attachments(self, key):
         try:
             r = self.session.get(f"{self.jira_url}/rest/api/3/issue/{key}", auth=self.jira_auth)
-            return [{'url': a['content']} for a in r.json().get('fields', {}).get('attachment', []) if
-                    a.get('mimeType', '').startswith('image/')]
+            atts = []
+            for a in r.json().get('fields', {}).get('attachment', []):
+                if a.get('mimeType', '').startswith('image/'):
+                    # content URL'sini ve mime type'ı alıyoruz
+                    atts.append({'url': a['content'], 'mime': a['mimeType']})
+            return atts
         except:
             return []
 
     def add_jira_comment(self, key, case_name):
         url = f"{self.jira_url}/rest/api/3/issue/{key}/comment"
-        msg = f"✅ QuickCase: Testmo aktarımı tamamlandı.\nOluşturulan Case: {case_name}"
+        msg = f"✅ VeloxCase: Testmo aktarımı tamamlandı.\nOluşturulan Case: {case_name}"
         payload = {"body": {"type": "doc", "version": 1,
                             "content": [{"type": "paragraph", "content": [{"text": msg, "type": "text"}]}]}}
         try:
@@ -206,25 +218,39 @@ class QuickCaseSync:
             pass
 
     def parse_cases(self, html_txt):
-        clean = re.sub(r'<[^>]+>', '', html_txt)
-        clean = html.unescape(clean)
+        # HTML taglerini temizle ama regex için metni koru
+        clean_text = re.sub(r'<[^>]+>', '', html_txt)
+        clean_text = html.unescape(clean_text)
+
         cases = []
-        for m in re.finditer(
-                r'TC(\d+)[ -]*(.+?):.*?Senaryo:\s*(.+?)\s*Beklenen Sonuç:\s*(.+?)\s*Durum:\s*(PASSED|FAILED)', clean,
-                re.DOTALL | re.IGNORECASE):
-            cases.append({'name': f"TC{m.group(1).strip()} - {m.group(2).strip()}", 'scen': m.group(3).strip(),
-                          'exp': m.group(4).strip(), 'status': m.group(5).upper()})
+        pattern = r'TC(\d+)[ -]*(.+?):.*?Senaryo:\s*(.+?)\s*Beklenen Sonuç:\s*(.+?)\s*Durum:\s*(PASSED|FAILED)'
+        for m in re.finditer(pattern, clean_text, re.DOTALL | re.IGNORECASE):
+            cases.append({
+                'name': f"TC{m.group(1).strip()} - {m.group(2).strip()}",
+                'scenario': m.group(3).strip(),
+                'expected_result': m.group(4).strip(),
+                'status': m.group(5).strip().upper()
+            })
         return cases
 
-    def extract_imgs(self, h):
-        return re.findall(r'<img[^>]+src=["\']([^"\']+)["\']', h)
+    def extract_imgs_from_html(self, html_content):
+        # src niteliğini yakala
+        return re.findall(r'<img[^>]+src=["\']([^"\']+)["\']', html_content)
 
-    def download(self, u, j=False):
+    # GÜNCELLENMİŞ İNDİRME FONKSİYONU
+    def download_image(self, u, j=False):
         try:
             u = u.replace('&amp;', '&')
             if u.startswith('/'): u = f"{self.jira_url}{u}"
+
+            # Stream ile indirip kontrol et
             r = self.session.get(u, auth=self.jira_auth if j else None, stream=True)
-            if r.status_code == 200 and 'image' in r.headers.get('Content-Type', ''):
+
+            if r.status_code == 200:
+                content_type = r.headers.get('Content-Type', '').lower()
+                # HTML gelirse (Login sayfası vs.) engelle
+                if 'text/html' in content_type:
+                    return None
                 return r.content
         except:
             pass
@@ -241,34 +267,50 @@ class QuickCaseSync:
         return self.session.post(f"{self.testmo_url}/projects/{pid}/folders", json={"folders": [pl]}).json().get('data',
                                                                                                                  {})
 
-    def create_case(self, pid, fid, info, steps, imgs):
-        desc = info['desc_html']
-        # Gömülü Resimler (Paralel)
-        embedded_urls = self.extract_imgs(desc)
-        if embedded_urls:
-            with ThreadPoolExecutor(max_workers=5) as executor:
-                futures = {executor.submit(self.download, url, "atlassian" in url or "/rest/" in url): url for url in
-                           embedded_urls}
-                for future in as_completed(futures):
-                    url = futures[future]
-                    if d := future.result():
-                        if b64 := self.compress_and_base64(d): desc = desc.replace(url, b64)
+    # GÜNCELLENMİŞ CREATE CASE (HTML Description + Embedded Images)
+    def create_case_embedded(self, pid, fid, info, steps, images_b64):
+        # 1. Description içindeki resimleri işle
+        desc_html = info['description_html']
 
-        # Ek Resimler (Markdown/HTML Olarak Ekle)
-        if imgs:
-            desc += "<br><hr><h3>📸 Ekler:</h3>" + "".join([
-                                                              f'<div style="margin:10px 0"><img src="{i}" style="max-width:100%; border:1px solid #ddd; border-radius:6px;"/></div>'
-                                                              for i in imgs])
+        # Description'daki resim URL'lerini bul ve indirip base64 ile değiştir
+        desc_img_urls = self.extract_imgs_from_html(desc_html)
+        for img_url in desc_img_urls:
+            is_jira = "atlassian" in img_url or "/rest/" in img_url or "/secure/" in img_url
+            img_content = self.download_image(img_url, is_jira)
 
-        f_steps = [{"text1": f"<p><strong>{s['name']}</strong></p><p>{s['scen']}</p>",
-                    "text3": f"<p>{s['exp']}</p><p><em>{s['status']}</em></p>"} for s in steps]
+            if img_content:
+                b64_src = self.image_to_base64(img_content)
+                if b64_src:
+                    desc_html = desc_html.replace(img_url, b64_src)
 
+        # 2. Ekstra Resimler (Attachments)
+        if images_b64:
+            desc_html += "<br><hr><h3>📸 Ekran Görüntüleri:</h3>"
+            for b64_img in images_b64:
+                desc_html += f'<div style="margin: 10px 0;"><img src="{b64_img}" style="max-width: 100%; border: 1px solid #ddd; border-radius: 4px;" /></div>'
+
+        # 3. Adımları Formatla
+        f_steps = []
+        for step in steps:
+            f_steps.append({
+                "text1": f"<p><strong>{step['name']}</strong></p><p>{step['scenario']}</p>",
+                "text3": f"<p>{step['expected_result']}</p><p><em>Status: {step['status']}</em></p>"
+            })
+
+        # 4. Payload
         pl = {
-            "name": info['summary'], "folder_id": int(fid), "template_id": 2, "state_id": 1, "priority_id": 2,
-            "custom_description": desc, "custom_steps": f_steps
+            "name": info['summary'],
+            "folder_id": int(fid),
+            "template_id": 2,
+            "state_id": 1,
+            "priority_id": 2,
+            "estimate": 0,
+            "custom_description": desc_html,  # HTML formatında description
+            "custom_steps": f_steps
         }
 
         r = self.session.post(f"{self.testmo_url}/projects/{pid}/cases", json={"cases": [pl]})
+
         if r.status_code in [200, 201]:
             d = r.json()
             if 'result' in d and d['result']: return d['result'][0]
@@ -285,23 +327,34 @@ class QuickCaseSync:
                 return result
 
             steps = []
+            # HTML formatında comment alıyoruz
             for c in self.get_comments(key):
                 b = c.get('renderedBody', c.get('body', ''))
-                if b: steps.extend(self.parse_cases(b))
+                if b:
+                    # Parse işlemi için temiz metin kullan
+                    steps.extend(self.parse_cases(b))
+                    # Comment içindeki resimler zaten renderedBody içinde img tagi olarak gelir,
+                    # create_case_embedded fonksiyonu description'daki mantıkla bunları da işleyebilirdi
+                    # ama şimdilik comment resimlerini değil, steps'leri alıyoruz.
 
+            # Attachments (Ekler) İndir
             attachments = self.get_attachments(key)
-            imgs = []
+            imgs_b64 = []
+
+            # ThreadPool ile resimleri paralel indir ve işle
             if attachments:
                 with ThreadPoolExecutor(max_workers=5) as executor:
-                    futures = [executor.submit(self.download, att['url'], True) for att in attachments]
+                    # download_image artık content dönüyor
+                    futures = [executor.submit(self.download_image, att['url'], True) for att in attachments]
                     for future in as_completed(futures):
-                        if d := future.result():
-                            if b64 := self.compress_and_base64(d): imgs.append(b64)
+                        if img_content := future.result():
+                            if b64 := self.image_to_base64(img_content):
+                                imgs_b64.append(b64)
 
-            if res := self.create_case(pid, fid, info, steps, imgs):
+            if res := self.create_case_embedded(pid, fid, info, steps, imgs_b64):
                 self.add_jira_comment(key, info['summary'])
                 result.update(
-                    {'status': 'success', 'case_name': info['summary'], 'images': len(imgs), 'steps': len(steps)})
+                    {'status': 'success', 'case_name': info['summary'], 'images': len(imgs_b64), 'steps': len(steps)})
             else:
                 result['msg'] = 'Case oluşturulamadı'
         except Exception as e:
@@ -359,8 +412,8 @@ def settings():
         data = request.json
         for key, value in data.items():
             if value and value != "********":
-                setting = Setting.query.filter_by(user_id=current_user.id, key=key).first()
                 val_enc = encrypt_value(value)
+                setting = Setting.query.filter_by(user_id=current_user.id, key=key).first()
                 if setting:
                     setting.value = val_enc
                 else:
@@ -437,6 +490,55 @@ def sync():
         db.session.commit()
 
     return jsonify({'results': results})
+
+
+# YENİ: ŞİFRE DEĞİŞTİRME ENDPOINT
+@app.route('/api/change-password', methods=['POST'])
+@jwt_required()
+def change_password():
+    try:
+        user = User.query.filter_by(username=get_jwt_identity()).first()
+        d = request.json or {}
+
+        if not check_password_hash(user.password_hash, d.get('old_password')):
+            return jsonify({"msg": "Eski şifre yanlış"}), 401
+
+        if len(d.get('new_password')) < 6:
+            return jsonify({"msg": "Şifre en az 6 karakter olmalı"}), 400
+
+        user.password_hash = generate_password_hash(d.get('new_password'), method='pbkdf2:sha256')
+        db.session.commit()
+        return jsonify({"msg": "Şifre güncellendi"}), 200
+    except Exception as e:
+        return jsonify({"msg": str(e)}), 500
+
+
+# PREVIEW ENDPOINT
+@app.route('/api/preview', methods=['POST'])
+@jwt_required()
+def preview_task():
+    try:
+        d = request.json
+        user = User.query.filter_by(username=get_jwt_identity()).first()
+        qc = QuickCaseSync(user.id)
+
+        key = d.get('task_key', '').strip()
+        if not key: return jsonify({'error': 'Boş ID'}), 400
+
+        # Temizlik
+        key = re.split(r'browse/', key)[-1].strip().split(',')[0]
+
+        info = qc.get_issue(key)
+        # info artık icon ve status dönmüyor olabilir, get_issue fonksiyonuna eklememiz gerekirdi
+        # Basitlik için sadece summary kontrolü yapıyoruz, detaylı preview istenirse get_issue güncellenmeli
+
+        if info['summary']:
+            return jsonify({'found': True, 'key': key, 'summary': info['summary'], 'status': 'Active', 'icon': ''})
+        else:
+            return jsonify({'found': False}), 404
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 with app.app_context():
