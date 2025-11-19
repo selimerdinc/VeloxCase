@@ -95,7 +95,7 @@ def init_db():
         db.create_all()
         # Admin yoksa oluştur
         if not User.query.filter_by(username='admin').first():
-            hashed = generate_password_hash("123456", method='pbkdf2:sha256')
+            hashed = generate_password_hash("181394", method='pbkdf2:sha256')
             db.session.add(User(username='admin', password_hash=hashed))
 
             # Varsayılan boş ayarları ekle
@@ -434,6 +434,8 @@ def sync():
     return jsonify({'results': results})
 
 
-if __name__ == '__main__':
+with app.app_context():
     init_db()
+
+if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5001, debug=True)
