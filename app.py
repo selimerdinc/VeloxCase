@@ -22,7 +22,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+CORS(app, resources={r"/api/*": {
+    "origins": [
+        "http://localhost:5173",  # Senin bilgisayarın (Test için)
+        "https://velox-case-7kqcisaz4-selimerdincs-projects.vercel.app" # SENİN VERCEL ADRESİN
+    ]
+}})
 
 # --- AYARLAR ---
 db_uri = os.getenv("DATABASE_URL", "sqlite:///quickcase.db")
