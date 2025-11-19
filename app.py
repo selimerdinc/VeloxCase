@@ -22,16 +22,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {
-    "origins": [
-        "http://localhost:5173",                                      # Senin yerel bilgisayarın
-        "https://velox-case-selimerdincs-projects.vercel.app",        # Ekran görüntüsündeki Vercel adresi
-        "https://velox-case.vercel.app",                              # Olası kısa adres
-        "https://velox-case-git-main-selimerdincs-projects.vercel.app" # Main branch preview adresi
-    ],
-    "methods": ["GET", "POST", "OPTIONS"],
-    "allow_headers": ["Content-Type", "Authorization"]
-}})
+CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # --- AYARLAR ---
 db_uri = os.getenv("DATABASE_URL", "sqlite:///quickcase.db")
