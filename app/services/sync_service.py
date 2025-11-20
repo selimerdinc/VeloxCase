@@ -177,7 +177,7 @@ class QuickCaseSyncService:
             "name": info['summary'],
             "folder_id": int(fid),
             "template_id": 2,
-            "state_id": 1,
+            "state_id": 2,
             "priority_id": 3,
             "estimate": 0,
             "custom_description": desc_html,
