@@ -230,10 +230,10 @@ class QuickCaseSyncService:
             logger.exception(f"Upload Exception: {e}")
             return False
 
-    # --- YENİ EKLENENLER: DUPLICATE CHECK VE UPDATE ---
+    # --- YENİ EKLENEN METODLAR (Duplicate Check & Update) ---
 
     def find_case_in_folder(self, pid, fid, case_name):
-        """Hedef klasörde aynı isimde bir case var mı?"""
+        """Hedef klasörde aynı isimde bir case olup olmadığını kontrol eder."""
         try:
             url = f"{self.testmo_url}/projects/{pid}/cases?folder_id={fid}"
             r = self.session.get(url, headers={'Content-Type': 'application/json'})
@@ -280,7 +280,6 @@ class QuickCaseSyncService:
         if jira_id:
             pl["issues"] = [int(jira_id)]
 
-        # PUT ile güncelle
         r = self.session.put(f"{self.testmo_url}/cases/{case_id}", json=pl,
                              headers={'Content-Type': 'application/json'})
 
@@ -355,7 +354,7 @@ class QuickCaseSyncService:
                 logger.warning(f"Task not found: {key}")
                 return result
 
-            # 1. DUPLICATE CHECK (Eğer force yoksa kontrol et)
+            # 1. DUPLICATE KONTROLÜ
             if not force_update:
                 existing_case = self.find_case_in_folder(pid, fid, info['summary'])
                 if existing_case:

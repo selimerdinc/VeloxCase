@@ -176,14 +176,12 @@ def sync():
     pid, fid = d['project_id'], d['folder_id']
 
     # YENİ: force_update parametresini alıyoruz (Varsayılan False)
-    force_update = d.get('force_update', False)
+    fforce_update = d.get('force_update', False)
 
     results = []
-
     with ThreadPoolExecutor(max_workers=3) as executor:
-        # YENİ: qc.process_single_task fonksiyonuna force_update bilgisini gönderiyoruz
-        futures = [executor.submit(qc.process_single_task, re.split(r'browse/', k)[-1].strip(), pid, fid, force_update)
-                   for k in task_keys]
+        # qc.process_single_task'a force_update'i gönder
+        futures = [executor.submit(qc.process_single_task, re.split(r'browse/', k)[-1].strip(), pid, fid, force_update) for k in task_keys]
 
         for future in as_completed(futures):
             res = future.result()
