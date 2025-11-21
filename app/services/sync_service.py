@@ -128,18 +128,13 @@ class QuickCaseSyncService:
     def download_image(self, u, j=False):
         try:
             u = u.replace('&amp;', '&')
-            # Jira URL'si eksikse tamamla (bazen full URL gelmeyebilir)
             if u.startswith('/') and not u.startswith('http'):
                 u = f"{self.jira_url}{u}"
 
-            # Jira attachment URL'leri genellikle token gerektirmez ama cookie auth isteyebilir.
-            # API token ile Basic Auth kullanıyoruz.
             r = self.session.get(u, auth=self.jira_auth if j else None, stream=True)
 
             if r.status_code == 200:
-                # Content-Type kontrolü (HTML sayfası indirmemek için)
                 if 'text/html' in r.headers.get('Content-Type', '').lower():
-                    print(f"Skipping HTML content from {u}")
                     return None
                 return r.content
             else:
@@ -164,6 +159,7 @@ class QuickCaseSyncService:
         return self.session.post(f"{self.testmo_url}/projects/{pid}/folders", json={"folders": [pl]},
                                  headers={'Content-Type': 'application/json'}).json().get('data', {})
 
+    # YENİ: Testmo'ya Dosya Yükleme Fonksiyonu
     def upload_attachment_to_case(self, case_id, file_content, filename="screenshot.jpg"):
         try:
             url = f"{self.testmo_url}/attachments"
@@ -178,6 +174,7 @@ class QuickCaseSyncService:
                 'entity_type': 'case'
             }
 
+            # ÖNEMLİ: Multipart request'te Content-Type header'ını requests kütüphanesine bırakıyoruz.
             custom_headers = self.headers.copy()
             if 'Content-Type' in custom_headers:
                 del custom_headers['Content-Type']
@@ -197,8 +194,6 @@ class QuickCaseSyncService:
         desc_html = info['description_html']
 
         # Description içindeki resimleri indirip base64 yapıyoruz (görsel bütünlük için)
-        # Bu kısım, description içinde görünen resimler içindir.
-        # Ekler (attachments) ayrı olarak yüklenecek.
         desc_img_urls = self.extract_imgs_from_html(desc_html)
         for img_url in desc_img_urls:
             is_jira = "atlassian" in img_url or "/rest/" in img_url or "/secure/" in img_url
@@ -218,7 +213,7 @@ class QuickCaseSyncService:
             "name": info['summary'],
             "folder_id": int(fid),
             "template_id": 2,
-            "state_id": 4,
+            "state_id": 4,  # Active
             "priority_id": 2,
             "estimate": 0,
             "issue_ids": [jira_key],
