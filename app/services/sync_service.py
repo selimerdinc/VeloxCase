@@ -206,47 +206,34 @@ class QuickCaseSyncService:
 
     def upload_attachment_to_case(self, case_id, file_content, filename="screenshot.jpg", project_id=None):
         try:
-            # DÜZELTME BURADA: URL'i proje bazlı yapıyoruz
-            # Eğer project_id varsa onu kullan, yoksa eski usul (belki çalışır diye) devam et
-            if project_id:
-                url = f"{self.testmo_url}/projects/{project_id}/attachments"
-            else:
-                url = f"{self.testmo_url}/attachments"
+            # DÜZELTME: Testmo'nun yeni "Case Attachment" endpoint'i
+            # Örnek: https://liberyum.testmo.net/api/v1/cases/20779/attachments/single
+            url = f"{self.testmo_url}/cases/{case_id}/attachments/single"
 
             mime_type, _ = mimetypes.guess_type(filename)
             if not mime_type: mime_type = 'image/jpeg'
 
+            # 'file' anahtarı ile dosyayı gönderiyoruz
             files = {'file': (filename, file_content, mime_type)}
 
-            # entity_id ile case'e bağlıyoruz
-            data = {'entity_id': str(case_id), 'entity_type': 'case'}
+            # URL zaten Case ID'yi içerdiği için ekstra 'data' göndermeye gerek yok.
+            # Sadece dosyayı multipart/form-data olarak atıyoruz.
 
             custom_headers = self.headers.copy()
+            # Content-Type'ı siliyoruz, requests kütüphanesi boundary'i kendi eklesin
             if 'Content-Type' in custom_headers:
                 del custom_headers['Content-Type']
 
-            r = self.session.post(url, files=files, data=data, headers=custom_headers)
+            r = self.session.post(url, files=files, headers=custom_headers)
 
             if r.status_code not in [200, 201]:
-                # Hata durumunda loga detaylı bas
                 logger.error(f"Testmo Upload Error ({r.status_code}): {r.text} | URL: {url}")
-
-                # Eğer 404 aldıysak ve project_id ile denediysek, bir de global endpointi deneyelim (Fallback)
-                if r.status_code == 404 and project_id:
-                    logger.warning("Proje bazlı URL başarısız oldu, global endpoint deneniyor...")
-                    fallback_url = f"{self.testmo_url}/attachments"
-                    r_retry = self.session.post(fallback_url, files=files, data=data, headers=custom_headers)
-                    if r_retry.status_code in [200, 201]:
-                        logger.info(f"Fallback Upload Success! Case: {case_id}")
-                        return True
-                    else:
-                        logger.error(f"Fallback Failed ({r_retry.status_code}): {r_retry.text}")
-                        return False
                 return False
 
             # Başarılı
             try:
                 resp = r.json()
+                # Testmo yanıtı: {"result": [{"id": 123, ...}]}
                 res_list = resp.get('result', [])
                 att_id = res_list[0].get('id', 'Unknown') if res_list else 'Unknown'
                 logger.info(f"Attachment Uploaded Successfully! ID: {att_id} -> Case: {case_id}")
