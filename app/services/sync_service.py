@@ -41,8 +41,8 @@ class QuickCaseSyncService:
         # Session Header Ayarları
         self.headers = {
             'Authorization': f'Bearer {testmo_key}',
-            # 'Content-Type': 'application/json', # Attachment upload için bunu dinamik yapacağız
             'Accept': 'application/json'
+            # Content-Type'ı burada set etmiyoruz, request bazında ekleyeceğiz
         }
         self.session.headers.update(self.headers)
         self.jira_auth = (jira_email, jira_token)
@@ -103,7 +103,6 @@ class QuickCaseSyncService:
         payload = {"body": {"type": "doc", "version": 1,
                             "content": [{"type": "paragraph", "content": [{"text": msg, "type": "text"}]}]}}
         try:
-            # JSON post ederken content-type ekle
             self.session.post(url, json=payload, auth=self.jira_auth, headers={'Content-Type': 'application/json'})
         except:
             pass
@@ -151,46 +150,42 @@ class QuickCaseSyncService:
         return self.session.post(f"{self.testmo_url}/projects/{pid}/folders", json={"folders": [pl]},
                                  headers={'Content-Type': 'application/json'}).json().get('data', {})
 
-    # YENİ: Testmo'ya Dosya Yükleme Fonksiyonu
+    # YENİ: Attachment Upload (Düzeltildi)
     def upload_attachment_to_case(self, case_id, file_content, filename="screenshot.jpg"):
         try:
+            # Attachment Endpoint
             url = f"{self.testmo_url}/attachments"
-            # Multipart upload için 'files' parametresi kullanılır
-            # 'entity_id' ve 'entity_type' Testmo API'sinde attachment'ı bir nesneye bağlamak için gerekebilir.
-            # Ancak Testmo API dökümanına göre genellikle önce upload edilir, sonra dönen ID kullanılır.
-            # Fakat bazı implementasyonlarda direkt entity_id ile gönderilir.
-            # Testmo API dökümanına göre doğru yöntem: POST /api/v1/attachments ile yükle, dönen ID'yi case'e ekle DEĞİL
-            # Testmo'da genellikle "case_id" parametresi form data içinde gönderilir.
 
+            # Dosyayı hazırla
             files = {
                 'file': (filename, file_content, 'image/jpeg')
             }
+
+            # Testmo, entity_id ve entity_type'ı form-data olarak bekler
             data = {
                 'entity_id': case_id,
-                'entity_type': 'case'  # case, run, result vb.
+                'entity_type': 'case'
             }
 
-            # Multipart request olduğu için Content-Type header'ını requests kütüphanesine bırakıyoruz (kendisi boundary ekler)
-            # Bu yüzden session header'ındaki 'Content-Type': 'application/json' çakışma yapabilir.
-            # O yüzden bu istek özelinde header'ı override ediyoruz.
+            # ÖNEMLİ: Multipart request'te Content-Type header'ını manuel set etme!
+            # Requests kütüphanesi boundary'i otomatik ekler.
+            # Mevcut session header'ında 'Content-Type': 'application/json' varsa bunu silmeliyiz.
             custom_headers = self.headers.copy()
             if 'Content-Type' in custom_headers:
                 del custom_headers['Content-Type']
 
             r = self.session.post(url, files=files, data=data, headers=custom_headers)
+
             return r.status_code == 201 or r.status_code == 200
         except Exception as e:
             print(f"Upload error: {e}")
             return False
 
     def create_case_embedded(self, pid, fid, info, steps, jira_key):
-        # Base64 resim gömme işlemini kaldırdık veya sadece description için bıraktık.
-        # Ekleri ayrı yükleyeceğiz.
+        # Description içindeki resimler için Base64 devam edebilir (Görsel bütünlük için)
         desc_html = info['description_html']
-
-        # Description içindeki resimleri base64 yapmaya devam edebiliriz (görsel bütünlük için)
-        # Ama asıl dosyalar attachment olarak eklenecek.
         desc_img_urls = self.extract_imgs_from_html(desc_html)
+
         for img_url in desc_img_urls:
             is_jira = "atlassian" in img_url or "/rest/" in img_url or "/secure/" in img_url
             img_content = self.download_image(img_url, is_jira)
@@ -222,10 +217,9 @@ class QuickCaseSyncService:
 
         if r.status_code in [200, 201]:
             d = r.json()
-            # Case ID'sini döndür (Result içinde veya cases içinde olabilir)
-            if 'result' in d and d['result']: return d['result'][0]  # Genellikle bulk create sonucu liste döner
+            if 'result' in d and d['result']: return d['result'][0]
             if 'cases' in d and d['cases']: return d['cases'][0]
-            return d  # Fallback
+            return d
         return None
 
     def process_single_task(self, key, pid, fid):
@@ -241,23 +235,21 @@ class QuickCaseSyncService:
                 b = c.get('renderedBody', c.get('body', ''))
                 if b: steps.extend(self.parse_cases(b))
 
-            # Attachments (Ekler) İndir - Resim içeriklerini hafızada tut
+            # Attachments'ı indir ve hafızada tut
             attachments = self.get_attachments(key)
-            downloaded_images = []  # (content, filename) listesi
+            downloaded_images = []
 
             if attachments:
                 with ThreadPoolExecutor(max_workers=5) as executor:
-                    # download_image artık content dönüyor
                     future_to_att = {executor.submit(self.download_image, att['url'], True): att for att in attachments}
                     for future in as_completed(future_to_att):
                         att = future_to_att[future]
                         if img_content := future.result():
-                            # Sadece içerik değil, dosya adını da sakla
-                            downloaded_images.append((img_content, att.get('filename', 'image.jpg')))
+                            # Dosya adını ve içeriği sakla
+                            fname = att.get('filename', 'image.jpg')
+                            downloaded_images.append((img_content, fname))
 
-            # 1. Case Oluştur (Resimler henüz yok, sadece text)
-            # create_case_embedded artık images_b64 parametresini description için opsiyonel kullanıyor
-            # ama biz asıl yüklemeyi sonraya bıraktık.
+            # 1. Case Oluştur
             created_case = self.create_case_embedded(pid, fid, info, steps, key)
 
             if created_case and 'id' in created_case:
@@ -268,12 +260,12 @@ class QuickCaseSyncService:
                 upload_count = 0
                 if downloaded_images:
                     with ThreadPoolExecutor(max_workers=3) as executor:
+                        # upload_attachment_to_case metodunu çağır
                         futures = [executor.submit(self.upload_attachment_to_case, case_id, img_data[0], img_data[1])
                                    for img_data in downloaded_images]
                         for future in as_completed(futures):
                             if future.result(): upload_count += 1
 
-                # 3. Jira Yorumu ve Sonuç
                 self.add_jira_comment(key, case_name)
                 result.update(
                     {'status': 'success', 'case_name': case_name, 'images': upload_count, 'steps': len(steps)})
