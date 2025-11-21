@@ -176,7 +176,7 @@ def sync():
     pid, fid = d['project_id'], d['folder_id']
 
     # YENİ: force_update parametresini alıyoruz (Varsayılan False)
-    fforce_update = d.get('force_update', False)
+    force_update = d.get('force_update', False)
 
     results = []
     with ThreadPoolExecutor(max_workers=3) as executor:
