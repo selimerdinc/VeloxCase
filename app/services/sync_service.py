@@ -114,42 +114,51 @@ class QuickCaseSyncService:
             pass
 
     def parse_cases(self, html_txt):
-        # HTML temizliği
-        clean_text = re.sub(r'<[^>]+>', '', html_txt)
+        # 1. ADIM: HTML YAPISINI KORUYARAK TEMİZLİK
+        # Jira'dan gelen HTML'deki <br>, <p>, <div> etiketlerini "Yeni Satır" (\n) karakterine çeviriyoruz.
+        # Bu sayede "PASSED" ile "Emir Başlığı" birbirine yapışmaz, alt alta gelir.
+        txt = html_txt.replace('<br>', '\n').replace('<br/>', '\n').replace('</p>', '\n').replace('</div>', '\n')
+
+        clean_text = re.sub(r'<[^>]+>', '', txt)  # Kalan diğer tagleri sil
         clean_text = html.unescape(clean_text)
 
         cases = []
 
-        # FİNAL REGEX (Başlık Temizleme Özellikli):
-
+        # 2. ADIM: GÜÇLENDİRİLMİŞ REGEX
         pattern = (
             r'TC(\d+)[ -]*(.+?)[:|-]?\s*'  # 1. Grup: ID, 2. Grup: Başlık
 
             r'(?:Senaryo|Scenario)[:]?\s*'  # Senaryo Etiketi
-            r'((?:(?!(?:Beklenen Sonuç|Expected Result)).)+)\s*'  # 3. Grup: Senaryo (Beklenen Sonuç'a kadar)
+            r'((?:(?!(?:Beklenen Sonuç|Expected Result)).)+)\s*'  # 3. Grup: Senaryo
 
             r'(?:Beklenen Sonuç|Expected Result)[:]?\s*'  # Beklenen Sonuç Etiketi
-            r'((?:(?!(?:Durum|Status)[:]|TC\d).)+)\s*'  # 4. Grup: Beklenen Sonuç (Durum'a veya Yeni TC'ye kadar)
+            r'((?:(?!(?:Durum|Status)[:]|TC\d).)+)\s*'  # 4. Grup: Beklenen Sonuç
 
-            # --- DÜZELTME BURADA ---
-            # Eskiden: (.+?) idi (Alt satırları da yiyordu)
-            # Şimdi: ([^\n]+) -> Sadece o satırdaki metni al, satır sonuna gelince dur.
-            # Böylece alt satırdaki "EMIR GÖNDERİMİ..." başlıkları Status'e dahil olmaz.
-            r'(?:(?:Durum|Status)[:]?\s*([^\n]+))?\s*'  # 5. Grup: Durum (Sadece Tek Satır)
+            # 5. Grup: DURUM (Sadece kendi satırını oku)
+            # [^\n\r]+ -> Satır sonuna kadar olan metni al, aşağı inme.
+            r'(?:(?:Durum|Status)[:]?\s*([^\n\r]+))?'
 
-            r'(?=TC\d|$)'  # Bitiş Kontrolü
+            # --- YENİ EKLENEN KISIM: ÇÖP TOPLAYICI ---
+            # Durum satırı bittikten sonra, bir sonraki "TC" başlayana kadar arada ne kadar
+            # boşluk, başlık (Örn: Emir Gönderimi...), açıklama varsa hepsini yut ve yoksay.
+            r'.*?'
+
+            r'(?=TC\d|$)'  # Bitiş: Yeni TC numarası veya Metin Sonu
         )
 
         for m in re.finditer(pattern, clean_text, re.DOTALL | re.IGNORECASE):
             status = "NO RUN"
 
             if m.group(5) and m.group(5).strip():
-                status_text = m.group(5).strip()
-                # Ekstra güvenlik: Eğer status içinde hala ":" varsa (örn: Status: Passed: Note...) temizle
-                if ":" not in status_text:
-                    status = status_text.upper()
+                # Yakalanan satırı temizle
+                raw_status = m.group(5).strip()
+
+                # Eğer satırda hala gereksiz ":" veya açıklama varsa sadece ilk kelimeyi al
+                # Örn: "PASSED : Açıklama" gelirse sadece "PASSED" alır.
+                if ":" in raw_status:
+                    status = raw_status.split(':')[0].strip().upper()
                 else:
-                    status = status_text.split(':')[0].strip().upper()
+                    status = raw_status.upper()
 
             cases.append({
                 'name': f"TC{m.group(1).strip()} - {m.group(2).strip()}",
