@@ -159,7 +159,7 @@ class QuickCaseSyncService:
         return self.session.post(f"{self.testmo_url}/projects/{pid}/folders", json={"folders": [pl]},
                                  headers={'Content-Type': 'application/json'}).json().get('data', {})
 
-    # YENİ: Testmo'ya Dosya Yükleme Fonksiyonu
+    # YENİ: Attachment Upload (Güçlendirilmiş)
     def upload_attachment_to_case(self, case_id, file_content, filename="screenshot.jpg"):
         try:
             url = f"{self.testmo_url}/attachments"
@@ -168,13 +168,13 @@ class QuickCaseSyncService:
                 'file': (filename, file_content, 'image/jpeg')
             }
 
-            # Testmo API: entity_id ve entity_type
+            # Testmo, entity_id'yi string olarak isteyebilir
             data = {
-                'entity_id': case_id,
+                'entity_id': str(case_id),
                 'entity_type': 'case'
             }
 
-            # ÖNEMLİ: Multipart request'te Content-Type header'ını requests kütüphanesine bırakıyoruz.
+            # Content-Type header'ını SİLİYORUZ, requests kütüphanesi boundary ile ekleyecek
             custom_headers = self.headers.copy()
             if 'Content-Type' in custom_headers:
                 del custom_headers['Content-Type']
@@ -182,9 +182,10 @@ class QuickCaseSyncService:
             r = self.session.post(url, files=files, data=data, headers=custom_headers)
 
             if r.status_code not in [200, 201]:
-                print(f"Testmo Upload Error: {r.status_code} - {r.text}")
+                print(f"Testmo Upload Error ({r.status_code}): {r.text}")
                 return False
 
+            print(f"Testmo Upload Success: {r.status_code}")
             return True
         except Exception as e:
             print(f"Upload Exception: {e}")
@@ -192,9 +193,8 @@ class QuickCaseSyncService:
 
     def create_case_embedded(self, pid, fid, info, steps, jira_key):
         desc_html = info['description_html']
-
-        # Description içindeki resimleri indirip base64 yapıyoruz (görsel bütünlük için)
         desc_img_urls = self.extract_imgs_from_html(desc_html)
+
         for img_url in desc_img_urls:
             is_jira = "atlassian" in img_url or "/rest/" in img_url or "/secure/" in img_url
             img_content = self.download_image(img_url, is_jira)
@@ -213,7 +213,7 @@ class QuickCaseSyncService:
             "name": info['summary'],
             "folder_id": int(fid),
             "template_id": 2,
-            "state_id": 4,  # Active
+            "state_id": 4,
             "priority_id": 2,
             "estimate": 0,
             "issue_ids": [jira_key],
@@ -246,11 +246,10 @@ class QuickCaseSyncService:
                 b = c.get('renderedBody', c.get('body', ''))
                 if b: steps.extend(self.parse_cases(b))
 
-            # --- ATTACHMENT İNDİRME ---
             attachments = self.get_attachments(key)
             downloaded_images = []
 
-            print(f"Task {key} için {len(attachments)} adet attachment bulundu.")
+            print(f"Task {key} için {len(attachments)} attachment bulundu.")
 
             if attachments:
                 with ThreadPoolExecutor(max_workers=5) as executor:
@@ -262,27 +261,26 @@ class QuickCaseSyncService:
                             fname = att.get('filename', 'image.jpg')
                             downloaded_images.append((img_content, fname))
                         else:
-                            print(f"Failed to download attachment: {att['url']}")
+                            print(f"Failed download: {att['url']}")
 
-            # --- CASE OLUŞTURMA ---
             created_case = self.create_case_embedded(pid, fid, info, steps, key)
 
             if created_case and 'id' in created_case:
                 case_id = created_case['id']
                 case_name = info['summary']
 
-                print(f"Case oluşturuldu ID: {case_id}. Resimler yükleniyor...")
+                print(f"Case ID: {case_id}. Resimler yükleniyor...")
 
-                # --- RESİM YÜKLEME (ATTACHMENT) ---
                 upload_count = 0
                 if downloaded_images:
                     with ThreadPoolExecutor(max_workers=3) as executor:
+                        # DİKKAT: img_data[0] -> content, img_data[1] -> filename
                         futures = [executor.submit(self.upload_attachment_to_case, case_id, img_data[0], img_data[1])
                                    for img_data in downloaded_images]
                         for future in as_completed(futures):
                             if future.result(): upload_count += 1
 
-                print(f"Toplam {upload_count} resim yüklendi.")
+                print(f"Yüklenen resim: {upload_count}")
 
                 self.add_jira_comment(key, case_name)
                 result.update(
