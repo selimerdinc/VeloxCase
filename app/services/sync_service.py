@@ -74,7 +74,7 @@ class QuickCaseSyncService:
             if r.status_code == 200:
                 d = r.json()
                 return {
-                    'id': d.get('id'),
+                    'id': d.get('id'),  # Jira'nın sayısal ID'si (Örn: 10052)
                     'summary': d.get('fields', {}).get('summary', ''),
                     'description_html': d.get('renderedFields', {}).get('description', '')
                 }
@@ -98,7 +98,6 @@ class QuickCaseSyncService:
 
             atts = []
             for a in r.json().get('fields', {}).get('attachment', []):
-                # Sadece resimleri alalım
                 if a.get('mimeType', '').startswith('image/'):
                     atts.append({'url': a['content'], 'mime': a['mimeType'], 'filename': a['filename']})
             return atts
@@ -159,17 +158,13 @@ class QuickCaseSyncService:
     def download_image(self, u, j=False):
         try:
             u = u.replace('&amp;', '&')
-            # URL relative ise (başında http yoksa) tamamla
             if u.startswith('/') and not u.startswith('http'):
                 u = f"{self.jira_url}{u}"
 
-            # allow_redirects=True varsayılandır ama garanti olsun
             r = self.session.get(u, auth=self.jira_auth if j else None, stream=True, allow_redirects=True)
 
             if r.status_code == 200:
-                # Bazı durumlarda Jira hata sayfasını 200 ile HTML olarak döner, onu filtrele
                 if 'text/html' in r.headers.get('Content-Type', '').lower():
-                    logger.warning(f"Image Download Skipped (HTML content): {u}")
                     return None
                 return r.content
             else:
@@ -206,21 +201,16 @@ class QuickCaseSyncService:
 
     def upload_attachment_to_case(self, case_id, file_content, filename="screenshot.jpg", project_id=None):
         try:
-            # DÜZELTME: Testmo'nun yeni "Case Attachment" endpoint'i
-            # Örnek: https://liberyum.testmo.net/api/v1/cases/20779/attachments/single
+            # DÜZELTME: Çalışan attachment endpointi (Case Bazlı)
             url = f"{self.testmo_url}/cases/{case_id}/attachments/single"
 
             mime_type, _ = mimetypes.guess_type(filename)
             if not mime_type: mime_type = 'image/jpeg'
 
-            # 'file' anahtarı ile dosyayı gönderiyoruz
             files = {'file': (filename, file_content, mime_type)}
 
-            # URL zaten Case ID'yi içerdiği için ekstra 'data' göndermeye gerek yok.
-            # Sadece dosyayı multipart/form-data olarak atıyoruz.
-
+            # Custom header temizliği
             custom_headers = self.headers.copy()
-            # Content-Type'ı siliyoruz, requests kütüphanesi boundary'i kendi eklesin
             if 'Content-Type' in custom_headers:
                 del custom_headers['Content-Type']
 
@@ -230,10 +220,8 @@ class QuickCaseSyncService:
                 logger.error(f"Testmo Upload Error ({r.status_code}): {r.text} | URL: {url}")
                 return False
 
-            # Başarılı
             try:
                 resp = r.json()
-                # Testmo yanıtı: {"result": [{"id": 123, ...}]}
                 res_list = resp.get('result', [])
                 att_id = res_list[0].get('id', 'Unknown') if res_list else 'Unknown'
                 logger.info(f"Attachment Uploaded Successfully! ID: {att_id} -> Case: {case_id}")
@@ -247,7 +235,7 @@ class QuickCaseSyncService:
 
     def create_case_embedded(self, pid, fid, info, steps, jira_key, jira_id=None):
         """
-        Case Oluşturma - refs kullanımı ile Linkleme
+        Case Oluşturma - JIRA Linkleme Güncellemesi
         """
         try:
             folder_id_int = int(fid)
@@ -258,7 +246,6 @@ class QuickCaseSyncService:
         desc_html = info['description_html']
         desc_img_urls = self.extract_imgs_from_html(desc_html)
 
-        # Description içindeki resimleri göm
         for img_url in desc_img_urls:
             is_jira = "atlassian" in img_url or "/rest/" in img_url or "/secure/" in img_url
             img_content = self.download_image(img_url, is_jira)
@@ -280,11 +267,16 @@ class QuickCaseSyncService:
             "state_id": 4,
             "priority_id": 2,
             "estimate": 0,
-            # DÜZELTME: Jira Key string olarak 'refs' alanına
+            # 1. Refs: String key (Mavi Link İçin)
             "refs": str(jira_key),
             "custom_description": desc_html,
             "custom_steps": f_steps
         }
+
+        # 2. DÜZELTME: 'issues' alanına Jira ID'sini (sayısal) ekliyoruz.
+        # Sizin curl komutunuzdaki "issues": [924] yapısını taklit ediyoruz.
+        if jira_id:
+            pl["issues"] = [int(jira_id)]
 
         r = self.session.post(f"{self.testmo_url}/projects/{pid}/cases", json={"cases": [pl]},
                               headers={'Content-Type': 'application/json'})
@@ -303,7 +295,6 @@ class QuickCaseSyncService:
         result = {'task': key, 'status': 'error', 'msg': '', 'case_name': ''}
 
         try:
-            # 1. Jira'dan Bilgileri Çek
             info = self.get_issue(key)
             if not info['summary']:
                 result['msg'] = 'Task bulunamadı'
@@ -315,7 +306,6 @@ class QuickCaseSyncService:
                 b = c.get('renderedBody', c.get('body', ''))
                 if b: steps.extend(self.parse_cases(b))
 
-            # 2. Ek Dosyaları (Attachments) İndir
             attachments = self.get_attachments(key)
             downloaded_images = []
 
@@ -329,10 +319,7 @@ class QuickCaseSyncService:
                         if img_content:
                             fname = att.get('filename', 'image.jpg')
                             downloaded_images.append((img_content, fname))
-                        else:
-                            logger.warning(f"Attachment download failed: {att['url']}")
 
-            # 3. Case Oluştur
             created_case = self.create_case_embedded(pid, fid, info, steps, key, jira_id=info.get('id'))
 
             if created_case and 'id' in created_case:
@@ -343,10 +330,8 @@ class QuickCaseSyncService:
                 upload_count = 0
                 if downloaded_images:
                     with ThreadPoolExecutor(max_workers=3) as executor:
-                        # Project ID (pid) gönderimi burada önemli
-                        futures = [
-                            executor.submit(self.upload_attachment_to_case, case_id, img_data[0], img_data[1], pid)
-                            for img_data in downloaded_images]
+                        futures = [executor.submit(self.upload_attachment_to_case, case_id, img_data[0], img_data[1])
+                                   for img_data in downloaded_images]
                         for future in as_completed(futures):
                             if future.result(): upload_count += 1
 
