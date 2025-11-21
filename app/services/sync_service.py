@@ -114,29 +114,53 @@ class QuickCaseSyncService:
             pass
 
     def parse_cases(self, html_txt):
-        # ESNEK REGEX (Kullanıcı hatalarını tolere eder)
+        # HTML temizliği
         clean_text = re.sub(r'<[^>]+>', '', html_txt)
         clean_text = html.unescape(clean_text)
+
         cases = []
 
+        # GÜÇLENDİRİLMİŞ REGEX MANTIĞI:
+        # 1. Grup: TC ID (Örn: 07)
+        # 2. Grup: Başlık (Örn: Favorileme Kontrolü)
+        # 3. Grup: Senaryo (Beklenen Sonuç kelimesini görene kadar her şeyi al)
+        # 4. Grup: Beklenen Sonuç (Durum kelimesini VEYA bir sonraki TC'yi görene kadar her şeyi al)
+        # 5. Grup: Durum (OPSİYONEL - Eğer varsa al, yoksa yoksay)
+
         pattern = (
-            r'TC(\d+)[ -]*(.+?)[:|-]?\s*'
-            r'(?:Senaryo|Scenario)[:]?\s*(.+?)\s*'
-            r'(?:Beklenen Sonuç|Expected Result)[:]?\s*(.+?)\s*'
-            r'(?:(?:Durum|Status)[:]?\s*(PASSED|FAILED|BLOCKED|SKIPPED))?'
+            r'TC(\d+)[ -]*(.+?)[:|-]?\s*'  # ID ve Başlık
+
+            r'(?:Senaryo|Scenario)[:]?\s*'  # Senaryo Etiketi
+            r'((?:(?!(?:Beklenen Sonuç|Expected Result)).)+)\s*'  # Senaryo İçeriği
+
+            r'(?:Beklenen Sonuç|Expected Result)[:]?\s*'  # Beklenen Sonuç Etiketi
+
+            # KRİTİK NOKTA BURASI:
+            # Aşağıdaki yapı: "Durum:" kelimesini YA DA "TC<sayı>" yapısını görene kadar okumaya devam et.
+            # Böylece Durum satırı hiç yazılmamışsa bile, bir sonraki TC'ye kadar olan metni "Beklenen Sonuç" kabul eder.
+            r'((?:(?!(?:Durum|Status)\s*[:]|TC\d).)+)\s*'
+
+            # Durum Kısmı (Tamamen Opsiyonel Yapıldı - ? işareti ile)
+            r'(?:(?:Durum|Status)[:]?\s*(.+?))?\s*'
+
+            # Bitiş Kontrolü (Ya yeni TC başlar ya da metin biter)
+            r'(?=TC\d|$)'
         )
 
         for m in re.finditer(pattern, clean_text, re.DOTALL | re.IGNORECASE):
-            status = "NO RUN"
-            if m.group(5):
+            status = "NO RUN"  # Varsayılan durum (Eğer Durum satırı yoksa bu atanır)
+
+            # Eğer 5. Grup (Durum) regex tarafından yakalandıysa onu kullan
+            if m.group(5) and m.group(5).strip():
                 status = m.group(5).strip().upper()
 
             cases.append({
                 'name': f"TC{m.group(1).strip()} - {m.group(2).strip()}",
                 'scenario': m.group(3).strip(),
-                'expected_result': m.group(4).strip(),
+                'expected_result': m.group(4).strip(),  # Artık kesilmeden tam gelir
                 'status': status
             })
+
         return cases
 
     def extract_imgs_from_html(self, html_content):
