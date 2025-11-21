@@ -247,7 +247,7 @@ class QuickCaseSyncService:
 
     def create_case_embedded(self, pid, fid, info, steps, jira_key, jira_id=None):
         """
-        Case Oluşturma - DÜZELTME: refs kullanımı
+        Case Oluşturma - refs kullanımı ile Linkleme
         """
         try:
             folder_id_int = int(fid)
@@ -258,7 +258,7 @@ class QuickCaseSyncService:
         desc_html = info['description_html']
         desc_img_urls = self.extract_imgs_from_html(desc_html)
 
-        # HTML içine gömülen resimler (Base64)
+        # Description içindeki resimleri göm
         for img_url in desc_img_urls:
             is_jira = "atlassian" in img_url or "/rest/" in img_url or "/secure/" in img_url
             img_content = self.download_image(img_url, is_jira)
@@ -280,9 +280,7 @@ class QuickCaseSyncService:
             "state_id": 4,
             "priority_id": 2,
             "estimate": 0,
-            # DÜZELTME BURADA:
-            # Jira ID (sayı) yerine Jira Key (TL-123) 'refs' alanına yazılıyor.
-            # Bu, Testmo arayüzünde tıklanabilir link oluşturur.
+            # DÜZELTME: Jira Key string olarak 'refs' alanına
             "refs": str(jira_key),
             "custom_description": desc_html,
             "custom_steps": f_steps
