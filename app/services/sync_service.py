@@ -74,7 +74,7 @@ class QuickCaseSyncService:
             if r.status_code == 200:
                 d = r.json()
                 return {
-                    'id': d.get('id'),  # Jira'nın sayısal ID'si (Örn: 10052)
+                    'id': d.get('id'),
                     'summary': d.get('fields', {}).get('summary', ''),
                     'description_html': d.get('renderedFields', {}).get('description', '')
                 }
@@ -105,9 +105,10 @@ class QuickCaseSyncService:
             logger.exception(f"Get Attachments Exception: {e}")
             return []
 
-    def add_jira_comment(self, key, case_name):
+    def add_jira_comment(self, key, case_name, is_update=False):
         url = f"{self.jira_url}/rest/api/3/issue/{key}/comment"
-        msg = f"✅ VeloxCase: Testmo aktarımı tamamlandı.\nOluşturulan Case: {case_name}"
+        action_text = "GÜNCELLENEN Case" if is_update else "Oluşturulan Case"
+        msg = f"✅ VeloxCase: Testmo aktarımı tamamlandı.\n{action_text}: {case_name}"
         payload = {"body": {"type": "doc", "version": 1,
                             "content": [{"type": "paragraph", "content": [{"text": msg, "type": "text"}]}]}}
         try:
@@ -116,14 +117,12 @@ class QuickCaseSyncService:
             pass
 
     def parse_cases(self, html_txt):
-        # HTML TEMİZLİĞİ
         txt = html_txt.replace('<br>', '\n').replace('<br/>', '\n').replace('</p>', '\n').replace('</div>', '\n')
         clean_text = re.sub(r'<[^>]+>', '', txt)
         clean_text = html.unescape(clean_text)
 
         cases = []
 
-        # REGEX
         pattern = (
             r'TC(\d+)[ -]*(.+?)[:|-]?\s*'
             r'(?:Senaryo|Scenario)[:]?\s*'
@@ -201,7 +200,6 @@ class QuickCaseSyncService:
 
     def upload_attachment_to_case(self, case_id, file_content, filename="screenshot.jpg", project_id=None):
         try:
-            # DÜZELTME: Çalışan attachment endpointi (Case Bazlı)
             url = f"{self.testmo_url}/cases/{case_id}/attachments/single"
 
             mime_type, _ = mimetypes.guess_type(filename)
@@ -209,7 +207,6 @@ class QuickCaseSyncService:
 
             files = {'file': (filename, file_content, mime_type)}
 
-            # Custom header temizliği
             custom_headers = self.headers.copy()
             if 'Content-Type' in custom_headers:
                 del custom_headers['Content-Type']
@@ -233,10 +230,70 @@ class QuickCaseSyncService:
             logger.exception(f"Upload Exception: {e}")
             return False
 
+    # --- YENİ EKLENENLER: DUPLICATE CHECK VE UPDATE ---
+
+    def find_case_in_folder(self, pid, fid, case_name):
+        """Hedef klasörde aynı isimde bir case var mı?"""
+        try:
+            url = f"{self.testmo_url}/projects/{pid}/cases?folder_id={fid}"
+            r = self.session.get(url, headers={'Content-Type': 'application/json'})
+            if r.status_code == 200:
+                cases = r.json().get('cases', [])
+                for c in cases:
+                    if c.get('name') == case_name:
+                        return c
+            return None
+        except Exception as e:
+            logger.error(f"Find Case Error: {e}")
+            return None
+
+    def update_case_embedded(self, case_id, info, steps, jira_key, jira_id=None):
+        """Mevcut Case'i Güncelle (PUT)"""
+        desc_html = info['description_html']
+        desc_img_urls = self.extract_imgs_from_html(desc_html)
+
+        for img_url in desc_img_urls:
+            is_jira = "atlassian" in img_url or "/rest/" in img_url or "/secure/" in img_url
+            img_content = self.download_image(img_url, is_jira)
+            if img_content:
+                b64_src = self.image_to_base64(img_content)
+                if b64_src: desc_html = desc_html.replace(img_url, b64_src)
+
+        f_steps = []
+        for step in steps:
+            f_steps.append({
+                "text1": f"<p><strong>{step['name']}</strong></p><p>{step['scenario']}</p>",
+                "text3": f"<p>{step['expected_result']}</p><p><em>Status: {step['status']}</em></p>"
+            })
+
+        pl = {
+            "name": info['summary'],
+            "template_id": 2,
+            "state_id": 4,
+            "priority_id": 2,
+            "estimate": 0,
+            "refs": str(jira_key),
+            "custom_description": desc_html,
+            "custom_steps": f_steps
+        }
+
+        if jira_id:
+            pl["issues"] = [int(jira_id)]
+
+        # PUT ile güncelle
+        r = self.session.put(f"{self.testmo_url}/cases/{case_id}", json=pl,
+                             headers={'Content-Type': 'application/json'})
+
+        if r.status_code in [200, 201]:
+            d = r.json()
+            if 'cases' in d and d['cases']: return d['cases'][0]
+            return d.get('data', d)
+        else:
+            logger.error(f"Update Case Error: {r.status_code} - {r.text}")
+            return None
+
     def create_case_embedded(self, pid, fid, info, steps, jira_key, jira_id=None):
-        """
-        Case Oluşturma - JIRA Linkleme Güncellemesi
-        """
+        """Yeni Case Oluştur (POST)"""
         try:
             folder_id_int = int(fid)
         except (ValueError, TypeError):
@@ -267,17 +324,11 @@ class QuickCaseSyncService:
             "state_id": 4,
             "priority_id": 2,
             "estimate": 0,
-            # 1. Refs: String key (Mavi Link İçin)
             "refs": str(jira_key),
             "custom_description": desc_html,
-            "custom_steps": f_steps,
-            "custom_fields": {
-                "jira_issue": str(jira_key)
-            }
+            "custom_steps": f_steps
         }
 
-        # 2. DÜZELTME: 'issues' alanına Jira ID'sini (sayısal) ekliyoruz.
-        # Sizin curl komutunuzdaki "issues": [924] yapısını taklit ediyoruz.
         if jira_id:
             pl["issues"] = [int(jira_id)]
 
@@ -293,7 +344,7 @@ class QuickCaseSyncService:
             logger.error(f"Create Case Error: {r.status_code} - {r.text}")
             return None
 
-    def process_single_task(self, key, pid, fid):
+    def process_single_task(self, key, pid, fid, force_update=False):
         key = key.strip().upper()
         result = {'task': key, 'status': 'error', 'msg': '', 'case_name': ''}
 
@@ -303,6 +354,16 @@ class QuickCaseSyncService:
                 result['msg'] = 'Task bulunamadı'
                 logger.warning(f"Task not found: {key}")
                 return result
+
+            # 1. DUPLICATE CHECK (Eğer force yoksa kontrol et)
+            if not force_update:
+                existing_case = self.find_case_in_folder(pid, fid, info['summary'])
+                if existing_case:
+                    result['status'] = 'duplicate'
+                    result['case_name'] = info['summary']
+                    result['case_id'] = existing_case.get('id')
+                    result['msg'] = 'Aynı isimde kayıt mevcut'
+                    return result
 
             steps = []
             for c in self.get_comments(key):
@@ -323,25 +384,45 @@ class QuickCaseSyncService:
                             fname = att.get('filename', 'image.jpg')
                             downloaded_images.append((img_content, fname))
 
-            created_case = self.create_case_embedded(pid, fid, info, steps, key, jira_id=info.get('id'))
+            # 2. KARAR: OLUŞTUR veya GÜNCELLE
+            target_case = None
+            action_type = "created"
 
-            if created_case and 'id' in created_case:
-                case_id = created_case['id']
+            if force_update:
+                existing_case = self.find_case_in_folder(pid, fid, info['summary'])
+                if existing_case:
+                    target_case = self.update_case_embedded(existing_case['id'], info, steps, key, info.get('id'))
+                    action_type = "updated"
+                else:
+                    target_case = self.create_case_embedded(pid, fid, info, steps, key, info.get('id'))
+            else:
+                target_case = self.create_case_embedded(pid, fid, info, steps, key, info.get('id'))
+
+            if target_case and 'id' in target_case:
+                case_id = target_case['id']
                 case_name = info['summary']
-                logger.info(f"Case Created! ID: {case_id}. Ekler yükleniyor...")
+                logger.info(f"Case {action_type.upper()}! ID: {case_id}. Ekler yükleniyor...")
 
                 upload_count = 0
                 if downloaded_images:
                     with ThreadPoolExecutor(max_workers=3) as executor:
-                        futures = [executor.submit(self.upload_attachment_to_case, case_id, img_data[0], img_data[1])
-                                   for img_data in downloaded_images]
+                        futures = [
+                            executor.submit(self.upload_attachment_to_case, case_id, img_data[0], img_data[1], pid)
+                            for img_data in downloaded_images]
                         for future in as_completed(futures):
                             if future.result(): upload_count += 1
 
                 logger.info(f"Yüklenen resim: {upload_count}")
-                self.add_jira_comment(key, case_name)
-                result.update(
-                    {'status': 'success', 'case_name': case_name, 'images': upload_count, 'steps': len(steps)})
+
+                self.add_jira_comment(key, case_name, is_update=(action_type == "updated"))
+
+                result.update({
+                    'status': 'success',
+                    'case_name': case_name,
+                    'images': upload_count,
+                    'steps': len(steps),
+                    'action': action_type
+                })
             else:
                 result['msg'] = 'Case oluşturulamadı'
                 if not result.get('msg'): result['msg'] = "API Hatası"

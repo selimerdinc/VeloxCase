@@ -10,6 +10,7 @@ from app.services.sync_service import QuickCaseSyncService
 
 sync_bp = Blueprint('sync', __name__, url_prefix='/api')
 
+
 @sync_bp.route('/folders/<int:id>', methods=['GET'])
 @jwt_required()
 def get_folders(id):
@@ -33,6 +34,7 @@ def get_folders(id):
     """
     user = User.query.filter_by(username=get_jwt_identity()).first()
     return jsonify({'folders': QuickCaseSyncService(user.id).get_folders(id)})
+
 
 @sync_bp.route('/folders/<int:id>', methods=['POST'])
 @jwt_required()
@@ -68,9 +70,11 @@ def create_folder(id):
     """
     try:
         user = User.query.filter_by(username=get_jwt_identity()).first()
-        return jsonify(QuickCaseSyncService(user.id).create_folder(id, request.json.get('name', 'Yeni'), request.json.get('parent_id')))
+        return jsonify(QuickCaseSyncService(user.id).create_folder(id, request.json.get('name', 'Yeni'),
+                                                                   request.json.get('parent_id')))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
 
 @sync_bp.route('/preview', methods=['POST'])
 @jwt_required()
@@ -118,6 +122,7 @@ def preview_task():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
 @sync_bp.route('/sync', methods=['POST'])
 @jwt_required()
 def sync():
@@ -152,6 +157,10 @@ def sync():
               type: integer
               description: Testmo Klasör ID
               example: 15
+            force_update:
+              type: boolean
+              description: Eğer true ise, aynı isimdeki case'in üzerine yazar.
+              default: false
     responses:
       200:
         description: İşlem sonuçları
@@ -165,14 +174,26 @@ def sync():
     if not task_keys: return jsonify({'error': 'Task giriniz'}), 400
 
     pid, fid = d['project_id'], d['folder_id']
+
+    # YENİ: force_update parametresini alıyoruz (Varsayılan False)
+    force_update = d.get('force_update', False)
+
     results = []
 
     with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = [executor.submit(qc.process_single_task, re.split(r'browse/', k)[-1].strip(), pid, fid) for k in task_keys]
+        # YENİ: qc.process_single_task fonksiyonuna force_update bilgisini gönderiyoruz
+        futures = [executor.submit(qc.process_single_task, re.split(r'browse/', k)[-1].strip(), pid, fid, force_update)
+                   for k in task_keys]
+
         for future in as_completed(futures):
             res = future.result()
             results.append(res)
+
+            # YENİ: Başarılı ise History'e kaydet (Duplicate durumunda kaydetmez)
+            # Status: Eğer güncellendiyse "UPDATED", yeni oluştuysa "SUCCESS" yazacak
             if res['status'] == 'success':
+                status_text = "UPDATED" if res.get('action') == 'updated' else "SUCCESS"
+
                 db.session.add(History(
                     date=datetime.now().strftime("%Y-%m-%d %H:%M"),
                     task=res['task'],
@@ -180,7 +201,7 @@ def sync():
                     folder_id=fid,
                     cases_count=1,
                     images_count=res.get('images', 0),
-                    status="SUCCESS",
+                    status=status_text,
                     case_name=res['case_name'],
                     user_id=user.id
                 ))
