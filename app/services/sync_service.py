@@ -288,7 +288,7 @@ class QuickCaseSyncService:
             "state_id": 4,
             "priority_id": 2,
             "estimate": 0,
-            "issue_ids": [jira_key],
+            "issues": [jira_key],
             "custom_description": desc_html,
             "custom_steps": f_steps
         }
