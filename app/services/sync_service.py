@@ -229,14 +229,23 @@ class QuickCaseSyncService:
         try:
             url = f"{self.testmo_url}/attachments"
 
+            # 1. MIME Type'ı dosya isminden tahmin et (veya varsayılan jpeg yap)
+            import mimetypes
+            mime_type, _ = mimetypes.guess_type(filename)
+            if not mime_type:
+                mime_type = 'image/jpeg'
+
             files = {
-                'file': (filename, file_content, 'image/jpeg')
+                'file': (filename, file_content, mime_type)
             }
+
+            # Testmo, entity_id'yi string olarak isteyebilir
             data = {
                 'entity_id': str(case_id),
                 'entity_type': 'case'
             }
 
+            # Content-Type header'ını SİLİYORUZ, requests kütüphanesi boundary ile ekleyecek
             custom_headers = self.headers.copy()
             if 'Content-Type' in custom_headers:
                 del custom_headers['Content-Type']
@@ -247,7 +256,19 @@ class QuickCaseSyncService:
                 logger.error(f"Testmo Upload Error ({r.status_code}): {r.text}")
                 return False
 
-            logger.info(f"Testmo Upload Success: {r.status_code}")
+            # 2. Dönen cevabı parse et ve ID'yi logla
+            try:
+                resp_data = r.json()
+                # Cevap genellikle {"result": [{"id": 6, ...}]} formatındadır
+                if 'result' in resp_data and len(resp_data['result']) > 0:
+                    att_id = resp_data['result'][0].get('id')
+                    logger.info(f"Testmo Upload Success: {r.status_code} | Attachment ID: {att_id} | File: {filename}")
+                else:
+                    logger.info(f"Testmo Upload Success: {r.status_code} | File: {filename}")
+            except:
+                # JSON parse edilemezse bile işlem başarılı sayılır
+                logger.info(f"Testmo Upload Success (No JSON): {r.status_code}")
+
             return True
         except Exception as e:
             logger.exception(f"Upload Exception: {e}")
@@ -288,7 +309,7 @@ class QuickCaseSyncService:
             "state_id": 4,
             "priority_id": 2,
             "estimate": 0,
-            "issues": [jira_key],
+            "refs": jira_key,
             "custom_description": desc_html,
             "custom_steps": f_steps
         }
