@@ -33,4 +33,4 @@ urllib3==2.5.0
 Werkzeug==3.1.3
 wrapt==2.0.1
 psycopg2-binary
-logging
+flasgger==0.9.7.1

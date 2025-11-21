@@ -13,12 +13,59 @@ sync_bp = Blueprint('sync', __name__, url_prefix='/api')
 @sync_bp.route('/folders/<int:id>', methods=['GET'])
 @jwt_required()
 def get_folders(id):
+    """
+    Testmo Klasörlerini Getir
+    Belirtilen Proje ID'sine ait klasörleri listeler.
+    ---
+    tags:
+      - Sync Operations
+    security:
+      - Bearer: []
+    parameters:
+      - name: id
+        in: path
+        type: integer
+        required: true
+        description: Testmo Proje ID (Repo ID)
+    responses:
+      200:
+        description: Klasör listesi
+    """
     user = User.query.filter_by(username=get_jwt_identity()).first()
     return jsonify({'folders': QuickCaseSyncService(user.id).get_folders(id)})
 
 @sync_bp.route('/folders/<int:id>', methods=['POST'])
 @jwt_required()
 def create_folder(id):
+    """
+    Yeni Klasör Oluştur
+    Testmo üzerinde yeni bir klasör oluşturur.
+    ---
+    tags:
+      - Sync Operations
+    security:
+      - Bearer: []
+    parameters:
+      - name: id
+        in: path
+        type: integer
+        required: true
+        description: Testmo Proje ID
+      - name: body
+        in: body
+        schema:
+          type: object
+          properties:
+            name:
+              type: string
+              example: "Yeni Test Klasörü"
+            parent_id:
+              type: integer
+              example: 12
+    responses:
+      200:
+        description: Oluşturulan klasör bilgisi
+    """
     try:
         user = User.query.filter_by(username=get_jwt_identity()).first()
         return jsonify(QuickCaseSyncService(user.id).create_folder(id, request.json.get('name', 'Yeni'), request.json.get('parent_id')))
@@ -28,6 +75,31 @@ def create_folder(id):
 @sync_bp.route('/preview', methods=['POST'])
 @jwt_required()
 def preview_task():
+    """
+    Jira Task Önizleme
+    Girilen Jira Key için özet bilgileri getirir.
+    ---
+    tags:
+      - Sync Operations
+    security:
+      - Bearer: []
+    parameters:
+      - name: body
+        in: body
+        schema:
+          type: object
+          required:
+            - task_key
+          properties:
+            task_key:
+              type: string
+              example: "PROJ-123"
+    responses:
+      200:
+        description: Task bulundu
+      404:
+        description: Task bulunamadı
+    """
     try:
         d = request.json
         user = User.query.filter_by(username=get_jwt_identity()).first()
@@ -49,6 +121,41 @@ def preview_task():
 @sync_bp.route('/sync', methods=['POST'])
 @jwt_required()
 def sync():
+    """
+    Jira -> Testmo Senkronizasyonu (Sync)
+    Jira Task'larını okur, Testmo'ya Case olarak aktarır.
+    ---
+    tags:
+      - Sync Operations
+    security:
+      - Bearer: []
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          required:
+            - jira_input
+            - project_id
+            - folder_id
+          properties:
+            jira_input:
+              type: string
+              description: Virgülle ayrılmış Jira Keyleri
+              example: "PROJ-123, PROJ-456"
+            project_id:
+              type: integer
+              description: Testmo Proje ID
+              example: 1
+            folder_id:
+              type: integer
+              description: Testmo Klasör ID
+              example: 15
+    responses:
+      200:
+        description: İşlem sonuçları
+    """
     d = request.json
     user = User.query.filter_by(username=get_jwt_identity()).first()
     qc = QuickCaseSyncService(user.id)
