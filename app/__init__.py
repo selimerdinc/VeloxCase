@@ -8,6 +8,8 @@ from app.extensions import db, jwt, cors, limiter
 from app.utils.db_initializer import init_db
 
 
+logger = logging.getLogger(__name__)
+
 def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)

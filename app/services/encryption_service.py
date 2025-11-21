@@ -1,10 +1,9 @@
 import os
-
-import logger
 from cryptography.fernet import Fernet
 from flask import current_app
 import logging
 
+logger = logging.getLogger(__name__)
 class EncryptionService:
     _cipher_suite = None
 
