@@ -2,9 +2,9 @@ import os
 import logging
 from logging.handlers import RotatingFileHandler
 from flask import Flask
-from flasgger import Swagger  # <--- EKLENDİ
+from flasgger import Swagger
 from config import Config
-from app.extensions import db, jwt, cors, limiter
+from app.extensions import db, jwt, cors, limiter, migrate
 from app.utils.db_initializer import init_db
 
 logger = logging.getLogger(__name__)
@@ -93,6 +93,7 @@ def create_app(config_class=Config):
         ]
     }})
     limiter.init_app(app)
+    migrate.init_app(app, db)
 
     # Blueprint'leri Kaydet
     from app.api.auth import auth_bp
