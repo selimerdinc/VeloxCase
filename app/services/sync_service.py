@@ -270,7 +270,10 @@ class QuickCaseSyncService:
             # 1. Refs: String key (Mavi Link İçin)
             "refs": str(jira_key),
             "custom_description": desc_html,
-            "custom_steps": f_steps
+            "custom_steps": f_steps,
+            "custom_fields": {
+                "jira_issue": str(jira_key)
+            }
         }
 
         # 2. DÜZELTME: 'issues' alanına Jira ID'sini (sayısal) ekliyoruz.
