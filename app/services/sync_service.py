@@ -117,14 +117,12 @@ class QuickCaseSyncService:
             pass
 
     def parse_cases(self, html_txt):
-        # HTML TEMİZLİĞİ
         txt = html_txt.replace('<br>', '\n').replace('<br/>', '\n').replace('</p>', '\n').replace('</div>', '\n')
         clean_text = re.sub(r'<[^>]+>', '', txt)
         clean_text = html.unescape(clean_text)
 
         cases = []
 
-        # REGEX
         pattern = (
             r'TC(\d+)[ -]*(.+?)[:|-]?\s*'
             r'(?:Senaryo|Scenario)[:]?\s*'
@@ -202,7 +200,6 @@ class QuickCaseSyncService:
 
     def upload_attachment_to_case(self, case_id, file_content, filename="screenshot.jpg", project_id=None):
         try:
-            # Resim yükleme endpointi (Case bazlı)
             url = f"{self.testmo_url}/cases/{case_id}/attachments/single"
 
             mime_type, _ = mimetypes.guess_type(filename)
@@ -249,9 +246,11 @@ class QuickCaseSyncService:
                     break
 
                 data = r.json()
+                # API bazen 'cases' bazen 'result' dönebiliyor
                 cases = data.get('cases', data.get('result', []))
 
                 for c in cases:
+                    # İsim eşleşmesi (Boşlukları temizleyerek)
                     if c.get('name', '').strip() == case_name.strip():
                         logger.info(f"Duplicate Found: {case_name} (ID: {c.get('id')})")
                         return c
@@ -267,9 +266,9 @@ class QuickCaseSyncService:
             logger.error(f"Find Case Error: {e}")
             return None
 
-    # --- YENİ: CASE GÜNCELLEME ---
-    def update_case_embedded(self, case_id, info, steps, jira_key, jira_id=None):
-        """Mevcut Case'i Güncelle (PUT)"""
+    # --- YENİ: CASE GÜNCELLEME (PATCH) ---
+    def update_case_embedded(self, pid, case_id, info, steps, jira_key, jira_id=None):
+        """Mevcut Case'i Güncelle (PATCH)"""
         desc_html = info['description_html']
         desc_img_urls = self.extract_imgs_from_html(desc_html)
 
@@ -293,16 +292,18 @@ class QuickCaseSyncService:
             "state_id": 4,
             "priority_id": 2,
             "estimate": 0,
-            "refs": str(jira_key),  # Jira Linki (Refs)
+            "refs": str(jira_key),  # Jira Linki
             "custom_description": desc_html,
             "custom_steps": f_steps
         }
 
         if jira_id:
-            pl["issues"] = [int(jira_id)]  # Jira Linki (Issues)
+            pl["issues"] = [int(jira_id)]  # Jira Issues
 
-        r = self.session.put(f"{self.testmo_url}/cases/{case_id}", json=pl,
-                             headers={'Content-Type': 'application/json'})
+        # DÜZELTME: URL Project ID içeriyor ve method PATCH
+        url = f"{self.testmo_url}/projects/{pid}/cases/{case_id}"
+
+        r = self.session.patch(url, json=pl, headers={'Content-Type': 'application/json'})
 
         if r.status_code in [200, 201]:
             d = r.json()
@@ -375,8 +376,7 @@ class QuickCaseSyncService:
                 logger.warning(f"Task not found: {key}")
                 return result
 
-            # 1. DUPLICATE CHECK
-            # Eğer force_update FALSE ise kontrol et, varsa dur
+            # 1. DUPLICATE CHECK (Eğer force_update FALSE ise kontrol et, varsa dur)
             if not force_update:
                 existing_case = self.find_case_in_folder(pid, fid, info['summary'])
                 if existing_case:
@@ -411,26 +411,28 @@ class QuickCaseSyncService:
             action_type = "created"
 
             if force_update:
-                # Güncelleme
+                # Güncelleme Modu
                 existing_case = self.find_case_in_folder(pid, fid, info['summary'])
                 if existing_case:
-                    target_case = self.update_case_embedded(existing_case['id'], info, steps, key, info.get('id'))
+                    # GÜNCELLEME: pid parametresini de gönderiyoruz
+                    target_case = self.update_case_embedded(pid, existing_case['id'], info, steps, key, info.get('id'))
                     action_type = "updated"
                 else:
                     # Silinmişse oluştur
                     target_case = self.create_case_embedded(pid, fid, info, steps, key, info.get('id'))
             else:
-                # Oluşturma
+                # Oluşturma Modu
                 target_case = self.create_case_embedded(pid, fid, info, steps, key, info.get('id'))
 
             if target_case and 'id' in target_case:
                 case_id = target_case['id']
                 case_name = info['summary']
-                logger.info(f"Case {action_type.upper()}! ID: {case_id}.")
+                logger.info(f"Case {action_type.upper()}! ID: {case_id}. Ekler yükleniyor...")
 
                 upload_count = 0
                 if downloaded_images:
                     with ThreadPoolExecutor(max_workers=3) as executor:
+                        # Project ID (pid) gönderimi burada önemli
                         futures = [
                             executor.submit(self.upload_attachment_to_case, case_id, img_data[0], img_data[1], pid)
                             for img_data in downloaded_images]
