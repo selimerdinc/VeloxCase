@@ -268,7 +268,10 @@ class QuickCaseSyncService:
 
     # --- YENİ: CASE GÜNCELLEME (PATCH) ---
     def update_case_embedded(self, pid, case_id, info, steps, jira_key, jira_id=None):
-        """Mevcut Case'i Güncelle (PATCH)"""
+        """
+        Mevcut Case'i Güncelle (Bulk Update Mantığı ile Tek Kayıt)
+        URL: /api/v1/projects/{pid}/cases (PATCH)
+        """
         desc_html = info['description_html']
         desc_img_urls = self.extract_imgs_from_html(desc_html)
 
@@ -286,31 +289,43 @@ class QuickCaseSyncService:
                 "text3": f"<p>{step['expected_result']}</p><p><em>Status: {step['status']}</em></p>"
             })
 
+        # Bulk Update Payload Formatı
         pl = {
-            "name": info['summary'],
+            "ids": [int(case_id)],  # Tek ID'yi liste olarak gönderiyoruz
             "template_id": 2,
             "state_id": 4,
             "priority_id": 2,
             "estimate": 0,
-            "refs": str(jira_key),  # Jira Linki
+            "refs": str(jira_key),
             "custom_description": desc_html,
             "custom_steps": f_steps
         }
 
         if jira_id:
-            pl["issues"] = [int(jira_id)]  # Jira Issues
+            pl["issues"] = [int(jira_id)]
 
-        # DÜZELTME: URL Project ID içeriyor ve method PATCH
-        url = f"{self.testmo_url}/projects/{pid}/cases/{case_id}"
+        # Endpoint: Proje bazlı toplu güncelleme
+        url = f"{self.testmo_url}/projects/{pid}/cases"
 
+        # PATCH isteği
         r = self.session.patch(url, json=pl, headers={'Content-Type': 'application/json'})
 
         if r.status_code in [200, 201]:
             d = r.json()
+            # Yanıt genellikle güncellenen case'leri döner
             if 'cases' in d and d['cases']: return d['cases'][0]
-            return d.get('data', d)
+            return d
         else:
-            logger.error(f"Update Case Error: {r.status_code} - {r.text}")
+            # Eğer PATCH çalışmazsa PUT dene (Fallback)
+            if r.status_code == 405:  # Method Not Allowed
+                logger.warning("PATCH desteklenmiyor, PUT deneniyor...")
+                r = self.session.put(url, json=pl, headers={'Content-Type': 'application/json'})
+                if r.status_code in [200, 201]:
+                    d = r.json()
+                    if 'cases' in d and d['cases']: return d['cases'][0]
+                    return d
+
+            logger.error(f"Update Case Error: {r.status_code} - {r.text} | URL: {url}")
             return None
 
     def create_case_embedded(self, pid, fid, info, steps, jira_key, jira_id=None):
