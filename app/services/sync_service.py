@@ -1,3 +1,4 @@
+import logging
 import requests
 import re
 import html
@@ -9,6 +10,7 @@ from app.models.setting import Setting
 from app.services.encryption_service import EncryptionService
 
 
+logger = logging.getLogger(__name__)
 class QuickCaseSyncService:
     def __init__(self, user_id):
         self.user_id = user_id
@@ -95,7 +97,8 @@ class QuickCaseSyncService:
                     atts.append({'url': a['content'], 'mime': a['mimeType'], 'filename': a['filename']})
             return atts
         except Exception as e:
-            print(f"Get Attachments Exception: {e}")
+            import logger
+            logger.exception(f"Get Attachments Exception: {e}")
             return []
 
     def add_jira_comment(self, key, case_name):
@@ -109,17 +112,45 @@ class QuickCaseSyncService:
             pass
 
     def parse_cases(self, html_txt):
+        # 1. HTML temizliği (Mevcut kodun)
         clean_text = re.sub(r'<[^>]+>', '', html_txt)
         clean_text = html.unescape(clean_text)
+
         cases = []
-        pattern = r'TC(\d+)[ -]*(.+?):.*?Senaryo:\s*(.+?)\s*Beklenen Sonuç:\s*(.+?)\s*Durum:\s*(PASSED|FAILED)'
+
+        # YENİ REGEX AÇIKLAMASI:
+        # TC(\d+)       -> TC ve sayı yakala (TC123)
+        # [ -]* -> Aradaki boşluk veya tireleri yut
+        # (.+?)         -> Başlığı yakala (Case Name)
+        # [:|-]?        -> Başlıktan sonra : veya - olabilir veya hiçbiri olmayabilir
+        # \s* -> Boşluklar
+        # (?:Senaryo|Scenario)[:]?\s* -> "Senaryo" YA DA "Scenario" (İngilizce desteği), iki nokta opsiyonel
+        # (.+?)         -> Senaryo metnini al
+        # \s* -> Boşluk
+        # (?:Beklenen Sonuç|Expected Result)[:]?\s* -> "Beklenen Sonuç" YA DA "Expected Result"
+        # (.+?)         -> Beklenen sonuç metnini al
+        # (?:Durum|Status)[:]?\s*(PASSED|FAILED|BLOCKED|SKIPPED)? -> Durum opsiyonel olsun, farklı statüler eklenebilir.
+
+        pattern = (
+            r'TC(\d+)[ -]*(.+?)[:|-]?\s*'
+            r'(?:Senaryo|Scenario)[:]?\s*(.+?)\s*'
+            r'(?:Beklenen Sonuç|Expected Result)[:]?\s*(.+?)\s*'
+            r'(?:(?:Durum|Status)[:]?\s*(PASSED|FAILED|BLOCKED|SKIPPED))?'
+        )
+
+
         for m in re.finditer(pattern, clean_text, re.DOTALL | re.IGNORECASE):
+            status = "NO RUN"  # Varsayılan durum
+            if m.group(5):  # Eğer regex 5. grubu (Durum) yakaladıysa
+                status = m.group(5).strip().upper()
+
             cases.append({
                 'name': f"TC{m.group(1).strip()} - {m.group(2).strip()}",
                 'scenario': m.group(3).strip(),
                 'expected_result': m.group(4).strip(),
-                'status': m.group(5).strip().upper()
+                'status': status
             })
+
         return cases
 
     def extract_imgs_from_html(self, html_content):
@@ -138,10 +169,10 @@ class QuickCaseSyncService:
                     return None
                 return r.content
             else:
-                print(f"Image Download Failed: {r.status_code} for {u}")
+                logger.warning(f"Image Download Failed: {r.status_code} for {u}")
                 return None
         except Exception as e:
-            print(f"Download Exception: {e} for {u}")
+            logger.error(f"Download Exception: {e} for {u}")
             return None
 
     def get_folders(self, pid):
@@ -182,13 +213,13 @@ class QuickCaseSyncService:
             r = self.session.post(url, files=files, data=data, headers=custom_headers)
 
             if r.status_code not in [200, 201]:
-                print(f"Testmo Upload Error ({r.status_code}): {r.text}")
+                logger.error(f"Testmo Upload Error ({r.status_code}): {r.text}")
                 return False
 
-            print(f"Testmo Upload Success: {r.status_code}")
+            logger.info(f"Testmo Upload Success: {r.status_code} for Case {case_id}")
             return True
         except Exception as e:
-            print(f"Upload Exception: {e}")
+            logger.exception(f"Upload Exception: {e}")
             return False
 
     def create_case_embedded(self, pid, fid, info, steps, jira_key):
@@ -249,7 +280,7 @@ class QuickCaseSyncService:
             attachments = self.get_attachments(key)
             downloaded_images = []
 
-            print(f"Task {key} için {len(attachments)} attachment bulundu.")
+            logger.info(f"Task {key} için {len(attachments)} attachment bulundu.")
 
             if attachments:
                 with ThreadPoolExecutor(max_workers=5) as executor:
@@ -261,7 +292,7 @@ class QuickCaseSyncService:
                             fname = att.get('filename', 'image.jpg')
                             downloaded_images.append((img_content, fname))
                         else:
-                            print(f"Failed download: {att['url']}")
+                            logger.warning(f"Failed download: {att['url']}")
 
             created_case = self.create_case_embedded(pid, fid, info, steps, key)
 
@@ -269,7 +300,7 @@ class QuickCaseSyncService:
                 case_id = created_case['id']
                 case_name = info['summary']
 
-                print(f"Case ID: {case_id}. Resimler yükleniyor...")
+                logger.info(f"Case ID: {case_id}. Resimler yükleniyor...")
 
                 upload_count = 0
                 if downloaded_images:
@@ -280,7 +311,7 @@ class QuickCaseSyncService:
                         for future in as_completed(futures):
                             if future.result(): upload_count += 1
 
-                print(f"Yüklenen resim: {upload_count}")
+                logger.info(f"Task {key} tamamlandı. Yüklenen resim: {upload_count}")
 
                 self.add_jira_comment(key, case_name)
                 result.update(
@@ -288,6 +319,6 @@ class QuickCaseSyncService:
             else:
                 result['msg'] = 'Case oluşturulamadı'
         except Exception as e:
-            print(f"Process Error: {e}")
+            logger.exception(f"Process Error General: {e}")
             result['msg'] = str(e)
         return result
