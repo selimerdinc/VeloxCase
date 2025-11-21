@@ -192,6 +192,7 @@ def sync():
             results.append(res)
 
             # Sadece başarılı işlemde (Created veya Updated) history'ye kaydet
+            # Duplicate durumunda history eklenmez
             if res['status'] == 'success':
                 status_text = "UPDATED" if res.get('action') == 'updated' else "SUCCESS"
 
