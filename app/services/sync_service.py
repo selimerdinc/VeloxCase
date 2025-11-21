@@ -270,8 +270,9 @@ class QuickCaseSyncService:
     # --- CASE GÜNCELLEME (RESİMDEKİ BULK UPDATE MANTIĞI) ---
     def update_case_embedded(self, pid, case_id, info, steps, jira_key, jira_id=None):
         """
-        Mevcut Case'i Güncelle (Bulk Update Yöntemiyle)
-        URL: PATCH /api/v1/projects/{pid}/cases (ID URL'de YOK, Body'de VAR)
+        Mevcut Case'i Güncelle (Testmo Bulk Update Endpoint Kullanarak)
+        URL: PATCH /api/v1/projects/{pid}/cases (Sondaki ID kalktı!)
+        Payload: ids: [case_id] olarak gidiyor.
         """
         desc_html = info['description_html']
         desc_img_urls = self.extract_imgs_from_html(desc_html)
@@ -290,9 +291,10 @@ class QuickCaseSyncService:
                 "text3": f"<p>{step['expected_result']}</p><p><em>Status: {step['status']}</em></p>"
             })
 
-        # ÖNEMLİ DÜZELTME: Testmo güncelleme için ID'yi liste olarak ister
+        # TESTMO İÇİN DOĞRU FORMAT:
+        # 1. ID'yi 'ids' listesi içine koyuyoruz.
         pl = {
-            "ids": [int(case_id)],  # <--- ID BURAYA GİMELİ
+            "ids": [int(case_id)],
             "template_id": 2,
             "state_id": 4,
             "priority_id": 2,
@@ -305,7 +307,9 @@ class QuickCaseSyncService:
         if jira_id:
             pl["issues"] = [int(jira_id)]
 
-        # DÜZELTME: URL sonunda '/{case_id}' YOK. Sadece '/cases'
+        # 2. URL DEĞİŞİKLİĞİ:
+        # Hatalı URL: .../projects/{pid}/cases/{case_id}  <-- Bunu sildik
+        # Doğru URL:  .../projects/{pid}/cases           <-- Bunu kullanıyoruz
         url = f"{self.testmo_url}/projects/{pid}/cases"
 
         # PATCH İsteği
@@ -313,7 +317,7 @@ class QuickCaseSyncService:
 
         if r.status_code in [200, 201]:
             d = r.json()
-            # Başarılı güncelleme
+            # Başarılı güncelleme yanıtı 'cases' listesi döner
             if 'cases' in d and d['cases']: return d['cases'][0]
             return d.get('data', d)
         else:
