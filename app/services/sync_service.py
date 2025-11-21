@@ -5,6 +5,7 @@ import html
 import base64
 import io
 import logging
+import mimetypes
 from PIL import Image
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from app.models.setting import Setting
@@ -67,18 +68,23 @@ class QuickCaseSyncService:
             return None
 
     def get_issue(self, key):
+        """
+        Jira'dan Issue bilgilerini çeker.
+        GÜNCELLEME: Artık 'id' (sayısal ID) bilgisini de dönüyor.
+        """
         try:
             r = self.session.get(f"{self.jira_url}/rest/api/3/issue/{key}", auth=self.jira_auth,
                                  params={'expand': 'renderedFields'})
             if r.status_code == 200:
                 d = r.json()
                 return {
+                    'id': d.get('id'),  # Jira'nın sayısal ID'si (Örn: 10052)
                     'summary': d.get('fields', {}).get('summary', ''),
                     'description_html': d.get('renderedFields', {}).get('description', '')
                 }
         except:
             pass
-        return {'summary': '', 'description_html': ''}
+        return {'id': None, 'summary': '', 'description_html': ''}
 
     def get_comments(self, key):
         try:
@@ -114,9 +120,7 @@ class QuickCaseSyncService:
             pass
 
     def parse_cases(self, html_txt):
-        # 1. ADIM: HTML YAPISINI KORUYARAK TEMİZLİK
-        # Jira'dan gelen HTML'deki <br>, <p>, <div> etiketlerini "Yeni Satır" (\n) karakterine çeviriyoruz.
-        # Bu sayede "PASSED" ile "Emir Başlığı" birbirine yapışmaz, alt alta gelir.
+        # 1. ADIM: HTML TEMİZLİĞİ
         txt = html_txt.replace('<br>', '\n').replace('<br/>', '\n').replace('</p>', '\n').replace('</div>', '\n')
 
         clean_text = re.sub(r'<[^>]+>', '', txt)  # Kalan diğer tagleri sil
@@ -124,37 +128,23 @@ class QuickCaseSyncService:
 
         cases = []
 
-        # 2. ADIM: GÜÇLENDİRİLMİŞ REGEX
+        # 2. ADIM: REGEX
         pattern = (
-            r'TC(\d+)[ -]*(.+?)[:|-]?\s*'  # 1. Grup: ID, 2. Grup: Başlık
-
+            r'TC(\d+)[ -]*(.+?)[:|-]?\s*'  # ID ve Başlık
             r'(?:Senaryo|Scenario)[:]?\s*'  # Senaryo Etiketi
-            r'((?:(?!(?:Beklenen Sonuç|Expected Result)).)+)\s*'  # 3. Grup: Senaryo
-
+            r'((?:(?!(?:Beklenen Sonuç|Expected Result)).)+)\s*'  # Senaryo
             r'(?:Beklenen Sonuç|Expected Result)[:]?\s*'  # Beklenen Sonuç Etiketi
-            r'((?:(?!(?:Durum|Status)[:]|TC\d).)+)\s*'  # 4. Grup: Beklenen Sonuç
-
-            # 5. Grup: DURUM (Sadece kendi satırını oku)
-            # [^\n\r]+ -> Satır sonuna kadar olan metni al, aşağı inme.
-            r'(?:(?:Durum|Status)[:]?\s*([^\n\r]+))?'
-
-            # --- YENİ EKLENEN KISIM: ÇÖP TOPLAYICI ---
-            # Durum satırı bittikten sonra, bir sonraki "TC" başlayana kadar arada ne kadar
-            # boşluk, başlık (Örn: Emir Gönderimi...), açıklama varsa hepsini yut ve yoksay.
-            r'.*?'
-
-            r'(?=TC\d|$)'  # Bitiş: Yeni TC numarası veya Metin Sonu
+            r'((?:(?!(?:Durum|Status)[:]|TC\d).)+)\s*'  # Beklenen Sonuç
+            r'(?:(?:Durum|Status)[:]?\s*([^\n\r]+))?'  # Durum (Tek Satır)
+            r'.*?'  # Çöp Toplayıcı
+            r'(?=TC\d|$)'  # Bitiş
         )
 
         for m in re.finditer(pattern, clean_text, re.DOTALL | re.IGNORECASE):
             status = "NO RUN"
 
             if m.group(5) and m.group(5).strip():
-                # Yakalanan satırı temizle
                 raw_status = m.group(5).strip()
-
-                # Eğer satırda hala gereksiz ":" veya açıklama varsa sadece ilk kelimeyi al
-                # Örn: "PASSED : Açıklama" gelirse sadece "PASSED" alır.
                 if ":" in raw_status:
                     status = raw_status.split(':')[0].strip().upper()
                 else:
@@ -196,16 +186,12 @@ class QuickCaseSyncService:
             r = self.session.get(f"{self.testmo_url}/projects/{pid}/folders",
                                  headers={'Content-Type': 'application/json'})
             d = r.json()
-            # Testmo versiyonuna göre yanıt yapısı değişebilir
             return d.get('folders', d.get('result', []))
         except Exception as e:
             logger.error(f"Get Folders Error: {e}")
             return []
 
     def create_folder(self, pid, name, prid=None):
-        """
-        DÜZELTME 1: API Yanıtından ID'yi doğru çekmek
-        """
         pl = {"name": name}
         if prid: pl["parent_id"] = int(prid)
 
@@ -213,39 +199,37 @@ class QuickCaseSyncService:
             r = self.session.post(f"{self.testmo_url}/projects/{pid}/folders", json={"folders": [pl]},
                                   headers={'Content-Type': 'application/json'})
             d = r.json()
-
-            # Yanıtın içinde 'folders' listesi varsa ilk elemanı al
             if 'folders' in d and len(d['folders']) > 0:
                 return d['folders'][0]
-
-            # Yoksa 'data' veya kendisini döndür
             return d.get('data', d)
-
         except Exception as e:
             logger.error(f"Create Folder Error: {e}")
             return {}
 
-    def upload_attachment_to_case(self, case_id, file_content, filename="screenshot.jpg"):
+    def upload_attachment_to_case(self, case_id, file_content, filename="screenshot.jpg", project_id=None):
+        """
+        Attachment Yükleme Fonksiyonu
+        GÜNCELLEME: 'project_id' eklendi ve dönüş değeri ID'yi logluyor.
+        """
         try:
             url = f"{self.testmo_url}/attachments"
 
-            # 1. MIME Type'ı dosya isminden tahmin et (veya varsayılan jpeg yap)
-            import mimetypes
+            # MIME Type Tahmini
             mime_type, _ = mimetypes.guess_type(filename)
-            if not mime_type:
-                mime_type = 'image/jpeg'
+            if not mime_type: mime_type = 'image/jpeg'
 
             files = {
                 'file': (filename, file_content, mime_type)
             }
 
-            # Testmo, entity_id'yi string olarak isteyebilir
+            # GÜNCELLEME: project_id eklendi. entity_id ile case bağlanır.
             data = {
                 'entity_id': str(case_id),
                 'entity_type': 'case'
             }
+            if project_id:
+                data['project_id'] = str(project_id)
 
-            # Content-Type header'ını SİLİYORUZ, requests kütüphanesi boundary ile ekleyecek
             custom_headers = self.headers.copy()
             if 'Content-Type' in custom_headers:
                 del custom_headers['Content-Type']
@@ -256,33 +240,28 @@ class QuickCaseSyncService:
                 logger.error(f"Testmo Upload Error ({r.status_code}): {r.text}")
                 return False
 
-            # 2. Dönen cevabı parse et ve ID'yi logla
+            # Başarılı ise logla
             try:
-                resp_data = r.json()
-                # Cevap genellikle {"result": [{"id": 6, ...}]} formatındadır
-                if 'result' in resp_data and len(resp_data['result']) > 0:
-                    att_id = resp_data['result'][0].get('id')
-                    logger.info(f"Testmo Upload Success: {r.status_code} | Attachment ID: {att_id} | File: {filename}")
-                else:
-                    logger.info(f"Testmo Upload Success: {r.status_code} | File: {filename}")
+                resp = r.json()
+                att_id = resp.get('result', [{}])[0].get('id', 'Unknown')
+                logger.info(f"Attachment Uploaded! ID: {att_id} -> Case: {case_id}")
             except:
-                # JSON parse edilemezse bile işlem başarılı sayılır
-                logger.info(f"Testmo Upload Success (No JSON): {r.status_code}")
+                logger.info(f"Attachment Uploaded! Case: {case_id}")
 
             return True
         except Exception as e:
             logger.exception(f"Upload Exception: {e}")
             return False
 
-    def create_case_embedded(self, pid, fid, info, steps, jira_key):
+    def create_case_embedded(self, pid, fid, info, steps, jira_key, jira_id=None):
         """
-        DÜZELTME 2: Folder ID Kontrolü (Hata vermeden durdurma)
+        Case Oluşturma Fonksiyonu
+        GÜNCELLEME: 'jira_id' parametresi eklendi ve 'issue_ids' buna göre düzenlendi.
         """
         try:
             folder_id_int = int(fid)
         except (ValueError, TypeError):
-            # Eğer ID yerine isim geldiyse burada yakalar ve log basar
-            logger.error(f"GECERSIZ FOLDER ID: {fid}. Case oluşturma iptal edildi. Lütfen klasörleri yenileyin.")
+            logger.error(f"GECERSIZ FOLDER ID: {fid}.")
             return None
 
         desc_html = info['description_html']
@@ -302,17 +281,24 @@ class QuickCaseSyncService:
                 "text3": f"<p>{step['expected_result']}</p><p><em>Status: {step['status']}</em></p>"
             })
 
+        # Payload Hazırlığı
         pl = {
             "name": info['summary'],
-            "folder_id": folder_id_int,  # Artık güvenli sayı
+            "folder_id": folder_id_int,
             "template_id": 2,
             "state_id": 4,
             "priority_id": 2,
             "estimate": 0,
-            "refs": jira_key,
             "custom_description": desc_html,
             "custom_steps": f_steps
         }
+
+        # GÜNCELLEME: Jira ID varsa issue_ids'e sayı olarak ekle
+        # Eğer yoksa, string key'i 'refs' alanına ekle (Yedek plan)
+        if jira_id:
+            pl["issue_ids"] = [int(jira_id)]
+        else:
+            pl["refs"] = str(jira_key)
 
         r = self.session.post(f"{self.testmo_url}/projects/{pid}/cases", json={"cases": [pl]},
                               headers={'Content-Type': 'application/json'})
@@ -327,12 +313,16 @@ class QuickCaseSyncService:
             return None
 
     def process_single_task(self, key, pid, fid):
+        # Key'i temizle ve büyüt (TL-123)
+        key = key.strip().upper()
         result = {'task': key, 'status': 'error', 'msg': '', 'case_name': ''}
+
         try:
+            # 1. Jira'dan Bilgileri Çek (ID DAHİL)
             info = self.get_issue(key)
             if not info['summary']:
                 result['msg'] = 'Task bulunamadı'
-                logger.warning(f"Task not found or empty summary: {key}")
+                logger.warning(f"Task not found: {key}")
                 return result
 
             steps = []
@@ -343,7 +333,7 @@ class QuickCaseSyncService:
             attachments = self.get_attachments(key)
             downloaded_images = []
 
-            logger.info(f"Task {key} için {len(attachments)} attachment bulundu.")
+            logger.info(f"Task {key} için {len(attachments)} attachment indiriliyor...")
 
             if attachments:
                 with ThreadPoolExecutor(max_workers=5) as executor:
@@ -354,27 +344,26 @@ class QuickCaseSyncService:
                         if img_content:
                             fname = att.get('filename', 'image.jpg')
                             downloaded_images.append((img_content, fname))
-                        else:
-                            logger.warning(f"Failed download: {att['url']}")
 
-            created_case = self.create_case_embedded(pid, fid, info, steps, key)
+            # 2. Case Oluştur (Jira ID ile birlikte)
+            created_case = self.create_case_embedded(pid, fid, info, steps, key, jira_id=info.get('id'))
 
             if created_case and 'id' in created_case:
                 case_id = created_case['id']
                 case_name = info['summary']
-
-                logger.info(f"Case ID: {case_id}. Resimler yükleniyor...")
+                logger.info(f"Case Created! ID: {case_id}. Resimler yükleniyor...")
 
                 upload_count = 0
                 if downloaded_images:
                     with ThreadPoolExecutor(max_workers=3) as executor:
-                        futures = [executor.submit(self.upload_attachment_to_case, case_id, img_data[0], img_data[1])
-                                   for img_data in downloaded_images]
+                        # GÜNCELLEME: project_id (pid) gönderiliyor
+                        futures = [
+                            executor.submit(self.upload_attachment_to_case, case_id, img_data[0], img_data[1], pid)
+                            for img_data in downloaded_images]
                         for future in as_completed(futures):
                             if future.result(): upload_count += 1
 
                 logger.info(f"Yüklenen resim: {upload_count}")
-
                 self.add_jira_comment(key, case_name)
                 result.update(
                     {'status': 'success', 'case_name': case_name, 'images': upload_count, 'steps': len(steps)})
