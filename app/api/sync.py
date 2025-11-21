@@ -1,3 +1,5 @@
+# app/api/sync.py
+
 import re
 from datetime import datetime
 from flask import Blueprint, request, jsonify
@@ -175,20 +177,21 @@ def sync():
 
     pid, fid = d['project_id'], d['folder_id']
 
-    # YENİ: force_update parametresini alıyoruz (Varsayılan False)
+    # YENİ: force_update parametresini al (Varsayılan False)
     force_update = d.get('force_update', False)
 
     results = []
+
     with ThreadPoolExecutor(max_workers=3) as executor:
-        # qc.process_single_task'a force_update'i gönder
-        futures = [executor.submit(qc.process_single_task, re.split(r'browse/', k)[-1].strip(), pid, fid, force_update) for k in task_keys]
+        # qc.process_single_task'a force_update parametresini iletiyoruz
+        futures = [executor.submit(qc.process_single_task, re.split(r'browse/', k)[-1].strip(), pid, fid, force_update)
+                   for k in task_keys]
 
         for future in as_completed(futures):
             res = future.result()
             results.append(res)
 
-            # YENİ: Başarılı ise History'e kaydet (Duplicate durumunda kaydetmez)
-            # Status: Eğer güncellendiyse "UPDATED", yeni oluştuysa "SUCCESS" yazacak
+            # Sadece başarılı işlemde (Created veya Updated) history'ye kaydet
             if res['status'] == 'success':
                 status_text = "UPDATED" if res.get('action') == 'updated' else "SUCCESS"
 

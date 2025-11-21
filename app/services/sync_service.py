@@ -117,12 +117,14 @@ class QuickCaseSyncService:
             pass
 
     def parse_cases(self, html_txt):
+        # HTML TEMİZLİĞİ
         txt = html_txt.replace('<br>', '\n').replace('<br/>', '\n').replace('</p>', '\n').replace('</div>', '\n')
         clean_text = re.sub(r'<[^>]+>', '', txt)
         clean_text = html.unescape(clean_text)
 
         cases = []
 
+        # REGEX
         pattern = (
             r'TC(\d+)[ -]*(.+?)[:|-]?\s*'
             r'(?:Senaryo|Scenario)[:]?\s*'
@@ -200,6 +202,7 @@ class QuickCaseSyncService:
 
     def upload_attachment_to_case(self, case_id, file_content, filename="screenshot.jpg", project_id=None):
         try:
+            # Resim yükleme endpointi (Case bazlı)
             url = f"{self.testmo_url}/cases/{case_id}/attachments/single"
 
             mime_type, _ = mimetypes.guess_type(filename)
@@ -230,13 +233,14 @@ class QuickCaseSyncService:
             logger.exception(f"Upload Exception: {e}")
             return False
 
-    # --- DÜZELTİLEN DUPLICATE KONTROLÜ (SAYFALAMA DESTEKLİ) ---
+    # --- YENİ: DUPLICATE KONTROLÜ (Sayfalama Destekli) ---
     def find_case_in_folder(self, pid, fid, case_name):
-        """Hedef klasörde aynı isimde bir case var mı? (Tüm sayfaları tarar)"""
+        """
+        Hedef klasörde aynı isimde bir case var mı? (Tüm sayfaları tarar)
+        """
         try:
             page = 1
             while True:
-                # Klasördeki case'leri sayfa sayfa çekiyoruz (per_page=100)
                 url = f"{self.testmo_url}/projects/{pid}/cases?folder_id={fid}&page={page}&per_page=100"
                 r = self.session.get(url, headers={'Content-Type': 'application/json'})
 
@@ -245,29 +249,25 @@ class QuickCaseSyncService:
                     break
 
                 data = r.json()
-                # API bazen 'cases' bazen 'result' dönebiliyor
                 cases = data.get('cases', data.get('result', []))
 
-                # Mevcut sayfadaki case'leri kontrol et
                 for c in cases:
-                    # İsim eşleşmesi (Boşlukları temizleyerek)
                     if c.get('name', '').strip() == case_name.strip():
-                        logger.info(f"Duplicate Case Found: {case_name} (ID: {c.get('id')})")
+                        logger.info(f"Duplicate Found: {case_name} (ID: {c.get('id')})")
                         return c
 
-                # Bir sonraki sayfa var mı kontrol et
-                # Testmo genelde 'next_page' alanını döner (eğer yoksa None)
+                # Sonraki sayfa var mı?
                 next_page = data.get('next_page')
                 if not next_page:
-                    break  # Son sayfadayız, döngüyü kır
-
-                page = next_page  # Sonraki sayfaya geç
+                    break
+                page = next_page
 
             return None
         except Exception as e:
             logger.error(f"Find Case Error: {e}")
             return None
 
+    # --- YENİ: CASE GÜNCELLEME ---
     def update_case_embedded(self, case_id, info, steps, jira_key, jira_id=None):
         """Mevcut Case'i Güncelle (PUT)"""
         desc_html = info['description_html']
@@ -293,18 +293,19 @@ class QuickCaseSyncService:
             "state_id": 4,
             "priority_id": 2,
             "estimate": 0,
-            "refs": str(jira_key),
+            "refs": str(jira_key),  # Jira Linki (Refs)
             "custom_description": desc_html,
             "custom_steps": f_steps
         }
-        if jira_id: pl["issues"] = [int(jira_id)]
+
+        if jira_id:
+            pl["issues"] = [int(jira_id)]  # Jira Linki (Issues)
 
         r = self.session.put(f"{self.testmo_url}/cases/{case_id}", json=pl,
                              headers={'Content-Type': 'application/json'})
 
         if r.status_code in [200, 201]:
             d = r.json()
-            # Update yanıtı bazen 'cases' içinde array döner
             if 'cases' in d and d['cases']: return d['cases'][0]
             return d.get('data', d)
         else:
@@ -343,13 +344,13 @@ class QuickCaseSyncService:
             "state_id": 4,
             "priority_id": 2,
             "estimate": 0,
-            "refs": str(jira_key),
+            "refs": str(jira_key),  # Jira Linki
             "custom_description": desc_html,
             "custom_steps": f_steps
         }
 
         if jira_id:
-            pl["issues"] = [int(jira_id)]
+            pl["issues"] = [int(jira_id)]  # Jira Issues
 
         r = self.session.post(f"{self.testmo_url}/projects/{pid}/cases", json={"cases": [pl]},
                               headers={'Content-Type': 'application/json'})
@@ -374,14 +375,12 @@ class QuickCaseSyncService:
                 logger.warning(f"Task not found: {key}")
                 return result
 
-            # 1. DUPLICATE CHECK (Eğer force_update yoksa kontrol et)
+            # 1. DUPLICATE CHECK
+            # Eğer force_update FALSE ise kontrol et, varsa dur
             if not force_update:
-                # Yeni sayfalama destekli kontrol
                 existing_case = self.find_case_in_folder(pid, fid, info['summary'])
-
                 if existing_case:
-                    # Duplicate bulundu, işlemi hemen durdur ve frontend'e bildir
-                    logger.info(f"Duplicate detected for {key}. Returning status='duplicate'.")
+                    logger.info(f"Duplicate found for {key}. Returning status='duplicate'.")
                     result['status'] = 'duplicate'
                     result['case_name'] = info['summary']
                     result['case_id'] = existing_case.get('id')
@@ -397,7 +396,7 @@ class QuickCaseSyncService:
             downloaded_images = []
 
             if attachments:
-                logger.info(f"Task {key} için {len(attachments)} attachment indiriliyor...")
+                logger.info(f"Task {key} için {len(attachments)} attachment bulundu...")
                 with ThreadPoolExecutor(max_workers=5) as executor:
                     future_to_att = {executor.submit(self.download_image, att['url'], True): att for att in attachments}
                     for future in as_completed(future_to_att):
@@ -407,12 +406,12 @@ class QuickCaseSyncService:
                             fname = att.get('filename', 'image.jpg')
                             downloaded_images.append((img_content, fname))
 
-            # 2. KARAR: OLUŞTUR veya GÜNCELLE
+            # 2. KARAR: OLUŞTUR VEYA GÜNCELLE
             target_case = None
             action_type = "created"
 
             if force_update:
-                # Güncelleme modu
+                # Güncelleme
                 existing_case = self.find_case_in_folder(pid, fid, info['summary'])
                 if existing_case:
                     target_case = self.update_case_embedded(existing_case['id'], info, steps, key, info.get('id'))
@@ -421,7 +420,7 @@ class QuickCaseSyncService:
                     # Silinmişse oluştur
                     target_case = self.create_case_embedded(pid, fid, info, steps, key, info.get('id'))
             else:
-                # Normal oluşturma
+                # Oluşturma
                 target_case = self.create_case_embedded(pid, fid, info, steps, key, info.get('id'))
 
             if target_case and 'id' in target_case:
