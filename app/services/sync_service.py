@@ -109,7 +109,6 @@ class QuickCaseSyncService:
         url = f"{self.jira_url}/rest/api/3/issue/{key}/comment"
         action_text = "GÜNCELLENEN Case" if is_update else "Oluşturulan Case"
         msg = f"✅ VeloxCase: Testmo aktarımı tamamlandı.\n{action_text}: {case_name}"
-
         payload = {"body": {"type": "doc", "version": 1,
                             "content": [{"type": "paragraph", "content": [{"text": msg, "type": "text"}]}]}}
         try:
@@ -202,12 +201,10 @@ class QuickCaseSyncService:
     def upload_attachment_to_case(self, case_id, file_content, filename="screenshot.jpg", project_id=None):
         try:
             url = f"{self.testmo_url}/cases/{case_id}/attachments/single"
-
             mime_type, _ = mimetypes.guess_type(filename)
             if not mime_type: mime_type = 'image/jpeg'
 
             files = {'file': (filename, file_content, mime_type)}
-
             custom_headers = self.headers.copy()
             if 'Content-Type' in custom_headers:
                 del custom_headers['Content-Type']
@@ -231,7 +228,7 @@ class QuickCaseSyncService:
             logger.exception(f"Upload Exception: {e}")
             return False
 
-    # --- DUPLICATE CHECK (Pagination Destekli) ---
+    # --- YENİ: DUPLICATE KONTROLÜ (Sayfalama Destekli) ---
     def find_case_in_folder(self, pid, fid, case_name):
         """
         Hedef klasörde aynı isimde bir case var mı? (Tüm sayfaları tarar)
@@ -239,14 +236,12 @@ class QuickCaseSyncService:
         try:
             page = 1
             target_name = case_name.strip().lower()
-            logger.info(f"Duplicate Check: '{case_name}' klasör {fid} içinde aranıyor...")
 
             while True:
                 url = f"{self.testmo_url}/projects/{pid}/cases?folder_id={fid}&page={page}&per_page=100"
                 r = self.session.get(url, headers={'Content-Type': 'application/json'})
 
                 if r.status_code != 200:
-                    logger.error(f"Find Case API Error: {r.status_code}")
                     break
 
                 data = r.json()
@@ -267,11 +262,12 @@ class QuickCaseSyncService:
             logger.error(f"Find Case Error: {e}")
             return None
 
-    # --- CASE GÜNCELLEME (RESİMDEKİ BULK UPDATE MANTIĞI) ---
+    # --- DÜZELTİLMİŞ UPDATE METHOD ---
     def update_case_embedded(self, pid, case_id, info, steps, jira_key, jira_id=None):
         """
         Mevcut Case'i Güncelle (Bulk Update Mantığı ile Tek Kayıt)
-        URL: /api/v1/projects/{pid}/cases (PATCH)
+        URL: PATCH /api/v1/projects/{pid}/cases
+        Payload: ids: [case_id]
         """
         desc_html = info['description_html']
         desc_img_urls = self.extract_imgs_from_html(desc_html)
@@ -290,9 +286,9 @@ class QuickCaseSyncService:
                 "text3": f"<p>{step['expected_result']}</p><p><em>Status: {step['status']}</em></p>"
             })
 
-        # Bulk Update Payload Formatı
         pl = {
-            "ids": [int(case_id)],  # Tek ID'yi liste olarak gönderiyoruz
+            "ids": [int(case_id)],  # ID Liste olarak gönderilir
+            "name": info['summary'],
             "template_id": 2,
             "state_id": 4,
             "priority_id": 2,
@@ -305,26 +301,21 @@ class QuickCaseSyncService:
         if jira_id:
             pl["issues"] = [int(jira_id)]
 
-        # Endpoint: Proje bazlı toplu güncelleme
+        # URL Project ID bazlı ve sonuna case ID EKLENMEZ
         url = f"{self.testmo_url}/projects/{pid}/cases"
 
-        # PATCH isteği
         r = self.session.patch(url, json=pl, headers={'Content-Type': 'application/json'})
 
         if r.status_code in [200, 201]:
             d = r.json()
-            # DÜZELTME: Testmo 'result' dizisi içinde döner, bunu kontrol ediyoruz
-            if 'result' in d and d['result']: return d['result'][0]
             if 'cases' in d and d['cases']: return d['cases'][0]
             return d.get('data', d)
         else:
-            # Eğer PATCH çalışmazsa PUT dene (Fallback)
-            if r.status_code == 405:  # Method Not Allowed
-                logger.warning("PATCH desteklenmiyor, PUT deneniyor...")
+            # Fallback PUT
+            if r.status_code == 405:
                 r = self.session.put(url, json=pl, headers={'Content-Type': 'application/json'})
                 if r.status_code in [200, 201]:
                     d = r.json()
-                    if 'result' in d and d['result']: return d['result'][0]  # Burada da result kontrolü
                     if 'cases' in d and d['cases']: return d['cases'][0]
                     return d
 
@@ -332,7 +323,6 @@ class QuickCaseSyncService:
             return None
 
     def create_case_embedded(self, pid, fid, info, steps, jira_key, jira_id=None):
-        """Yeni Case Oluştur (POST)"""
         try:
             folder_id_int = int(fid)
         except (ValueError, TypeError):
@@ -394,7 +384,7 @@ class QuickCaseSyncService:
                 logger.warning(f"Task not found: {key}")
                 return result
 
-            # DUPLICATE CHECK
+            # 1. DUPLICATE CHECK
             if not force_update:
                 existing_case = self.find_case_in_folder(pid, fid, info['summary'])
                 if existing_case:
@@ -424,21 +414,19 @@ class QuickCaseSyncService:
                             fname = att.get('filename', 'image.jpg')
                             downloaded_images.append((img_content, fname))
 
+            # 2. KARAR: OLUŞTUR VEYA GÜNCELLE
             target_case = None
             action_type = "created"
 
             if force_update:
-                # Güncelleme Modu
                 existing_case = self.find_case_in_folder(pid, fid, info['summary'])
                 if existing_case:
                     # GÜNCELLEME: pid parametresini de gönderiyoruz
                     target_case = self.update_case_embedded(pid, existing_case['id'], info, steps, key, info.get('id'))
                     action_type = "updated"
                 else:
-                    # Silinmişse oluştur
                     target_case = self.create_case_embedded(pid, fid, info, steps, key, info.get('id'))
             else:
-                # Oluşturma Modu
                 target_case = self.create_case_embedded(pid, fid, info, steps, key, info.get('id'))
 
             if target_case and 'id' in target_case:
