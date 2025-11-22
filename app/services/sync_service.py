@@ -201,10 +201,12 @@ class QuickCaseSyncService:
     def upload_attachment_to_case(self, case_id, file_content, filename="screenshot.jpg", project_id=None):
         try:
             url = f"{self.testmo_url}/cases/{case_id}/attachments/single"
+
             mime_type, _ = mimetypes.guess_type(filename)
             if not mime_type: mime_type = 'image/jpeg'
 
             files = {'file': (filename, file_content, mime_type)}
+
             custom_headers = self.headers.copy()
             if 'Content-Type' in custom_headers:
                 del custom_headers['Content-Type']
@@ -228,11 +230,21 @@ class QuickCaseSyncService:
             logger.exception(f"Upload Exception: {e}")
             return False
 
-    # --- YENİ: DUPLICATE KONTROLÜ (Sayfalama Destekli) ---
+    # --- YENİ: Case'e ait mevcut ekleri getirir (Resim İkilemesini Önlemek İçin) ---
+    def get_case_attachments(self, case_id):
+        try:
+            url = f"{self.testmo_url}/cases/{case_id}/attachments"
+            r = self.session.get(url, headers={'Content-Type': 'application/json'})
+            if r.status_code == 200:
+                d = r.json()
+                return d.get('result', d)
+            return []
+        except Exception as e:
+            logger.error(f"Get Case Attachments Error: {e}")
+            return []
+
+    # --- DUPLICATE CHECK (Pagination Destekli) ---
     def find_case_in_folder(self, pid, fid, case_name):
-        """
-        Hedef klasörde aynı isimde bir case var mı? (Tüm sayfaları tarar)
-        """
         try:
             page = 1
             target_name = case_name.strip().lower()
@@ -242,6 +254,7 @@ class QuickCaseSyncService:
                 r = self.session.get(url, headers={'Content-Type': 'application/json'})
 
                 if r.status_code != 200:
+                    logger.error(f"Find Case API Error: {r.status_code}")
                     break
 
                 data = r.json()
@@ -262,11 +275,10 @@ class QuickCaseSyncService:
             logger.error(f"Find Case Error: {e}")
             return None
 
-    # --- DÜZELTİLMİŞ UPDATE METHOD ---
+    # --- CASE GÜNCELLEME (Bulk PATCH ile Düzeltilmiş) ---
     def update_case_embedded(self, pid, case_id, info, steps, jira_key, jira_id=None):
         """
-        Mevcut Case'i Güncelle (Bulk Update Mantığı ile Tek Kayıt)
-        URL: PATCH /api/v1/projects/{pid}/cases
+        Case Güncelleme (PATCH /api/v1/projects/{pid}/cases)
         Payload: ids: [case_id]
         """
         desc_html = info['description_html']
@@ -286,8 +298,9 @@ class QuickCaseSyncService:
                 "text3": f"<p>{step['expected_result']}</p><p><em>Status: {step['status']}</em></p>"
             })
 
+        # ID'yi 'ids' listesi içinde gönderiyoruz
         pl = {
-            "ids": [int(case_id)],  # ID Liste olarak gönderilir
+            "ids": [int(case_id)],
             "name": info['summary'],
             "template_id": 2,
             "state_id": 4,
@@ -301,7 +314,7 @@ class QuickCaseSyncService:
         if jira_id:
             pl["issues"] = [int(jira_id)]
 
-        # URL Project ID bazlı ve sonuna case ID EKLENMEZ
+        # URL DÜZELTİLDİ: Sondaki case_id kalktı
         url = f"{self.testmo_url}/projects/{pid}/cases"
 
         r = self.session.patch(url, json=pl, headers={'Content-Type': 'application/json'})
@@ -311,7 +324,7 @@ class QuickCaseSyncService:
             if 'cases' in d and d['cases']: return d['cases'][0]
             return d.get('data', d)
         else:
-            # Fallback PUT
+            # Fallback PUT (Nadir durumlar için)
             if r.status_code == 405:
                 r = self.session.put(url, json=pl, headers={'Content-Type': 'application/json'})
                 if r.status_code in [200, 201]:
@@ -381,10 +394,8 @@ class QuickCaseSyncService:
             info = self.get_issue(key)
             if not info['summary']:
                 result['msg'] = 'Task bulunamadı'
-                logger.warning(f"Task not found: {key}")
                 return result
 
-            # 1. DUPLICATE CHECK
             if not force_update:
                 existing_case = self.find_case_in_folder(pid, fid, info['summary'])
                 if existing_case:
@@ -414,14 +425,12 @@ class QuickCaseSyncService:
                             fname = att.get('filename', 'image.jpg')
                             downloaded_images.append((img_content, fname))
 
-            # 2. KARAR: OLUŞTUR VEYA GÜNCELLE
             target_case = None
             action_type = "created"
 
             if force_update:
                 existing_case = self.find_case_in_folder(pid, fid, info['summary'])
                 if existing_case:
-                    # GÜNCELLEME: pid parametresini de gönderiyoruz
                     target_case = self.update_case_embedded(pid, existing_case['id'], info, steps, key, info.get('id'))
                     action_type = "updated"
                 else:
@@ -429,17 +438,36 @@ class QuickCaseSyncService:
             else:
                 target_case = self.create_case_embedded(pid, fid, info, steps, key, info.get('id'))
 
-            if target_case and 'id' in target_case:
-                case_id = target_case['id']
+            if target_case:
+                case_id = target_case.get('id')
                 case_name = info['summary']
                 logger.info(f"Case {action_type.upper()}! ID: {case_id}.")
 
                 upload_count = 0
-                if downloaded_images:
+
+                # --- AKILLI RESİM FİLTRELEME (GERİ GELDİ) ---
+                images_to_upload = downloaded_images
+
+                if action_type == "updated" and downloaded_images:
+                    try:
+                        existing_atts = self.get_case_attachments(case_id)
+                        existing_filenames = {att.get('name') for att in existing_atts}
+
+                        images_to_upload = []
+                        for img_content, filename in downloaded_images:
+                            if filename not in existing_filenames:
+                                images_to_upload.append((img_content, filename))
+                            else:
+                                logger.info(f"Skipping existing image: {filename}")
+                    except Exception as e:
+                        logger.error(f"Error filtering images: {e}")
+                        images_to_upload = downloaded_images
+
+                if images_to_upload and case_id:
                     with ThreadPoolExecutor(max_workers=3) as executor:
                         futures = [
-                            executor.submit(self.upload_attachment_to_case, case_id, img_data[0], img_data[1], pid)
-                            for img_data in downloaded_images]
+                            executor.submit(self.upload_attachment_to_case, case_id, img_content, filename, pid)
+                            for img_content, filename in images_to_upload]
                         for future in as_completed(futures):
                             if future.result(): upload_count += 1
 
@@ -453,8 +481,7 @@ class QuickCaseSyncService:
                     'action': action_type
                 })
             else:
-                result['msg'] = 'Case oluşturulamadı'
-                if not result.get('msg'): result['msg'] = "API Hatası"
+                result['msg'] = 'Case oluşturulamadı veya güncellenemedi'
         except Exception as e:
             logger.exception(f"Process Error General: {e}")
             result['msg'] = str(e)
