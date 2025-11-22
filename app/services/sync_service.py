@@ -270,9 +270,8 @@ class QuickCaseSyncService:
     # --- CASE GÜNCELLEME (RESİMDEKİ BULK UPDATE MANTIĞI) ---
     def update_case_embedded(self, pid, case_id, info, steps, jira_key, jira_id=None):
         """
-        Mevcut Case'i Güncelle (Testmo Bulk Update Endpoint Kullanarak)
-        URL: PATCH /api/v1/projects/{pid}/cases (Sondaki ID kalktı!)
-        Payload: ids: [case_id] olarak gidiyor.
+        Mevcut Case'i Güncelle (Bulk Update Mantığı ile Tek Kayıt)
+        URL: /api/v1/projects/{pid}/cases (PATCH)
         """
         desc_html = info['description_html']
         desc_img_urls = self.extract_imgs_from_html(desc_html)
@@ -291,10 +290,9 @@ class QuickCaseSyncService:
                 "text3": f"<p>{step['expected_result']}</p><p><em>Status: {step['status']}</em></p>"
             })
 
-        # TESTMO İÇİN DOĞRU FORMAT:
-        # 1. ID'yi 'ids' listesi içine koyuyoruz.
+        # Bulk Update Payload Formatı
         pl = {
-            "ids": [int(case_id)],
+            "ids": [int(case_id)],  # Tek ID'yi liste olarak gönderiyoruz
             "template_id": 2,
             "state_id": 4,
             "priority_id": 2,
@@ -307,20 +305,29 @@ class QuickCaseSyncService:
         if jira_id:
             pl["issues"] = [int(jira_id)]
 
-        # 2. URL DEĞİŞİKLİĞİ:
-        # Hatalı URL: .../projects/{pid}/cases/{case_id}  <-- Bunu sildik
-        # Doğru URL:  .../projects/{pid}/cases           <-- Bunu kullanıyoruz
+        # Endpoint: Proje bazlı toplu güncelleme
         url = f"{self.testmo_url}/projects/{pid}/cases"
 
-        # PATCH İsteği
+        # PATCH isteği
         r = self.session.patch(url, json=pl, headers={'Content-Type': 'application/json'})
 
         if r.status_code in [200, 201]:
             d = r.json()
-            # Başarılı güncelleme yanıtı 'cases' listesi döner
+            # DÜZELTME: Testmo 'result' dizisi içinde döner, bunu kontrol ediyoruz
+            if 'result' in d and d['result']: return d['result'][0]
             if 'cases' in d and d['cases']: return d['cases'][0]
             return d.get('data', d)
         else:
+            # Eğer PATCH çalışmazsa PUT dene (Fallback)
+            if r.status_code == 405:  # Method Not Allowed
+                logger.warning("PATCH desteklenmiyor, PUT deneniyor...")
+                r = self.session.put(url, json=pl, headers={'Content-Type': 'application/json'})
+                if r.status_code in [200, 201]:
+                    d = r.json()
+                    if 'result' in d and d['result']: return d['result'][0]  # Burada da result kontrolü
+                    if 'cases' in d and d['cases']: return d['cases'][0]
+                    return d
+
             logger.error(f"Update Case Error: {r.status_code} - {r.text} | URL: {url}")
             return None
 
