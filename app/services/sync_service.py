@@ -200,6 +200,7 @@ class QuickCaseSyncService:
 
     def upload_attachment_to_case(self, case_id, file_content, filename="screenshot.jpg", project_id=None):
         try:
+            # Case bazlı upload endpointi
             url = f"{self.testmo_url}/cases/{case_id}/attachments/single"
 
             mime_type, _ = mimetypes.guess_type(filename)
@@ -245,6 +246,9 @@ class QuickCaseSyncService:
 
     # --- DUPLICATE CHECK (Pagination Destekli) ---
     def find_case_in_folder(self, pid, fid, case_name):
+        """
+        Hedef klasörde aynı isimde bir case var mı? (Tüm sayfaları tarar)
+        """
         try:
             page = 1
             target_name = case_name.strip().lower()
@@ -275,7 +279,7 @@ class QuickCaseSyncService:
             logger.error(f"Find Case Error: {e}")
             return None
 
-    # --- CASE GÜNCELLEME (Bulk PATCH ile Düzeltilmiş) ---
+    # --- CASE GÜNCELLEME (DÜZELTİLDİ) ---
     def update_case_embedded(self, pid, case_id, info, steps, jira_key, jira_id=None):
         """
         Case Güncelleme (PATCH /api/v1/projects/{pid}/cases)
@@ -298,7 +302,7 @@ class QuickCaseSyncService:
                 "text3": f"<p>{step['expected_result']}</p><p><em>Status: {step['status']}</em></p>"
             })
 
-        # ID'yi 'ids' listesi içinde gönderiyoruz
+        # DÜZELTME: Jira Key'i string olarak 'issues' alanına gönderiyoruz
         pl = {
             "ids": [int(case_id)],
             "name": info['summary'],
@@ -311,12 +315,10 @@ class QuickCaseSyncService:
             "custom_steps": f_steps
         }
 
-        if jira_id:
-            pl["issues"] = [int(jira_id)]
+        # Jira Bağlantısı: Hem string key hem int ID (hangisi çalışırsa)
+        pl["issues"] = [str(jira_key)]  # Çoğu entegrasyon Key bekler
 
-        # URL DÜZELTİLDİ: Sondaki case_id kalktı
         url = f"{self.testmo_url}/projects/{pid}/cases"
-
         r = self.session.patch(url, json=pl, headers={'Content-Type': 'application/json'})
 
         if r.status_code in [200, 201]:
@@ -324,7 +326,7 @@ class QuickCaseSyncService:
             if 'cases' in d and d['cases']: return d['cases'][0]
             return d.get('data', d)
         else:
-            # Fallback PUT (Nadir durumlar için)
+            # Fallback PUT
             if r.status_code == 405:
                 r = self.session.put(url, json=pl, headers={'Content-Type': 'application/json'})
                 if r.status_code in [200, 201]:
@@ -336,6 +338,7 @@ class QuickCaseSyncService:
             return None
 
     def create_case_embedded(self, pid, fid, info, steps, jira_key, jira_id=None):
+        """Yeni Case Oluştur (POST)"""
         try:
             folder_id_int = int(fid)
         except (ValueError, TypeError):
@@ -371,8 +374,8 @@ class QuickCaseSyncService:
             "custom_steps": f_steps
         }
 
-        if jira_id:
-            pl["issues"] = [int(jira_id)]
+        # DÜZELTME: Jira Key'i string olarak gönderiyoruz
+        pl["issues"] = [str(jira_key)]
 
         r = self.session.post(f"{self.testmo_url}/projects/{pid}/cases", json={"cases": [pl]},
                               headers={'Content-Type': 'application/json'})
@@ -394,8 +397,10 @@ class QuickCaseSyncService:
             info = self.get_issue(key)
             if not info['summary']:
                 result['msg'] = 'Task bulunamadı'
+                logger.warning(f"Task not found: {key}")
                 return result
 
+            # DUPLICATE CHECK
             if not force_update:
                 existing_case = self.find_case_in_folder(pid, fid, info['summary'])
                 if existing_case:
@@ -445,7 +450,7 @@ class QuickCaseSyncService:
 
                 upload_count = 0
 
-                # --- AKILLI RESİM FİLTRELEME (GERİ GELDİ) ---
+                # --- AKILLI RESİM FİLTRELEME (GERİ EKLENDİ) ---
                 images_to_upload = downloaded_images
 
                 if action_type == "updated" and downloaded_images:
