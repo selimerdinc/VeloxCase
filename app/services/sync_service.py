@@ -116,15 +116,38 @@ class QuickCaseSyncService:
         except:
             pass
 
-    # --- YENİ: JIRA REMOTE LINK EKLEME ---
-    def add_jira_remote_link(self, jira_key, case_id, pid, case_name):
-        """
-        Jira task'ına Testmo Case'i için tıklanabilir bir 'Web Link' ekler.
-        """
+    # --- (EKSİK OLAN KISIM) JIRA REMOTE LINK YÖNETİMİ ---
+    def delete_existing_remote_links(self, jira_key):
+        """Jira taskındaki eski Testmo linklerini temizler (Duplicate önleme)"""
         try:
-            # Testmo Case URL'ini oluştur (Repository view linki)
-            # Not: URL yapısı Testmo versiyonuna göre değişebilir, en yaygın olanı:
-            case_url = f"{self.testmo_url.replace('/api/v1', '')}/repositories/{pid}?case_id={case_id}"
+            url = f"{self.jira_url}/rest/api/3/issue/{jira_key}/remotelink"
+            r = self.session.get(url, auth=self.jira_auth)
+            if r.status_code == 200:
+                links = r.json()
+                for link in links:
+                    title = link.get('object', {}).get('title', '')
+                    link_url = link.get('object', {}).get('url', '')
+
+                    # Testmo linklerini bul ve sil
+                    if "Testmo Case" in title or "testmo" in link_url.lower():
+                        link_id = link.get('id')
+                        del_url = f"{self.jira_url}/rest/api/3/issue/{jira_key}/remotelink/{link_id}"
+                        self.session.delete(del_url, auth=self.jira_auth)
+                        logger.info(f"Deleted old remote link: {link_id}")
+        except Exception as e:
+            logger.error(f"Delete Remote Link Error: {e}")
+
+    def add_jira_remote_link(self, jira_key, case_id, pid, case_name):
+        """Jira taskına Testmo Case linkini 'Web Link' olarak ekler"""
+        if not case_id: return
+
+        # Önce eskileri temizle
+        self.delete_existing_remote_links(jira_key)
+
+        try:
+            # Temiz Web URL'i oluştur (API url'inden türet)
+            base_web_url = self.testmo_url.replace('/api/v1', '').rstrip('/')
+            case_url = f"{base_web_url}/repositories/{pid}?case_id={case_id}"
 
             url = f"{self.jira_url}/rest/api/3/issue/{jira_key}/remotelink"
 
@@ -133,23 +156,19 @@ class QuickCaseSyncService:
                     "url": case_url,
                     "title": f"Testmo Case: {case_name}",
                     "icon": {
-                        "url16x16": f"{self.testmo_url.replace('/api/v1', '')}/favicon.ico",
+                        "url16x16": f"{base_web_url}/favicon.ico",
                         "title": "Testmo"
                     }
                 }
             }
 
             r = self.session.post(url, json=payload, auth=self.jira_auth, headers={'Content-Type': 'application/json'})
-
             if r.status_code in [200, 201]:
                 logger.info(f"Jira Remote Link added to {jira_key}")
-                return True
             else:
                 logger.warning(f"Failed to add Jira link: {r.status_code} - {r.text}")
-                return False
         except Exception as e:
             logger.error(f"Add Jira Link Exception: {e}")
-            return False
 
     def parse_cases(self, html_txt):
         txt = html_txt.replace('<br>', '\n').replace('<br/>', '\n').replace('</p>', '\n').replace('</div>', '\n')
@@ -235,6 +254,7 @@ class QuickCaseSyncService:
 
     def upload_attachment_to_case(self, case_id, file_content, filename="screenshot.jpg", project_id=None):
         try:
+            # Case bazlı upload endpointi
             url = f"{self.testmo_url}/cases/{case_id}/attachments/single"
 
             mime_type, _ = mimetypes.guess_type(filename)
@@ -265,6 +285,7 @@ class QuickCaseSyncService:
             logger.exception(f"Upload Exception: {e}")
             return False
 
+    # --- YENİ: Case'e ait mevcut ekleri getirir (Resim İkilemesini Önlemek İçin) ---
     def get_case_attachments(self, case_id):
         try:
             url = f"{self.testmo_url}/cases/{case_id}/attachments"
@@ -326,7 +347,10 @@ class QuickCaseSyncService:
                 "text3": f"<p>{step['expected_result']}</p><p><em>Status: {step['status']}</em></p>"
             })
 
-        # DÜZELTME: 'custom_fields' kaldırıldı, 'refs' korundu.
+        # Jira linkini Description'a ekle (Garanti olsun)
+        jira_link_html = f'<p><strong>🔗 Jira Task:</strong> <a href="{self.jira_url}/browse/{jira_key}" target="_blank">{jira_key}</a></p><hr>'
+        final_desc = jira_link_html + desc_html
+
         pl = {
             "ids": [int(case_id)],
             "name": info['summary'],
@@ -335,25 +359,31 @@ class QuickCaseSyncService:
             "priority_id": 2,
             "estimate": 0,
             "refs": str(jira_key),
-            "custom_description": desc_html,
+            "custom_description": final_desc,
             "custom_steps": f_steps
         }
 
-        # Bulk Update URL'i
+        # Bulk update URL'i
         url = f"{self.testmo_url}/projects/{pid}/cases"
         r = self.session.patch(url, json=pl, headers={'Content-Type': 'application/json'})
 
         if r.status_code in [200, 201]:
             d = r.json()
-            if 'cases' in d and d['cases']: return d['cases'][0]
-            return d.get('data', d)
+            res_obj = None
+            if 'cases' in d and d['cases']:
+                res_obj = d['cases'][0]
+            elif 'result' in d and d['result']:
+                res_obj = d['result'][0]
+
+            # EĞER ID DÖNMEZSE MANUEL EKLE (None sorununu çözer)
+            if not res_obj or 'id' not in res_obj:
+                return {'id': case_id, 'updated': True}
+            return res_obj
         else:
             if r.status_code == 405:
                 r = self.session.put(url, json=pl, headers={'Content-Type': 'application/json'})
                 if r.status_code in [200, 201]:
-                    d = r.json()
-                    if 'cases' in d and d['cases']: return d['cases'][0]
-                    return d
+                    return {'id': case_id, 'updated': True}
 
             logger.error(f"Update Case Error: {r.status_code} - {r.text} | URL: {url}")
             return None
@@ -361,13 +391,11 @@ class QuickCaseSyncService:
     def create_case_embedded(self, pid, fid, info, steps, jira_key, jira_id=None):
         try:
             folder_id_int = int(fid)
-        except (ValueError, TypeError):
-            logger.error(f"GECERSIZ FOLDER ID: {fid}.")
+        except:
             return None
 
         desc_html = info['description_html']
         desc_img_urls = self.extract_imgs_from_html(desc_html)
-
         for img_url in desc_img_urls:
             is_jira = "atlassian" in img_url or "/rest/" in img_url or "/secure/" in img_url
             img_content = self.download_image(img_url, is_jira)
@@ -382,30 +410,23 @@ class QuickCaseSyncService:
                 "text3": f"<p>{step['expected_result']}</p><p><em>Status: {step['status']}</em></p>"
             })
 
-        # DÜZELTME: 'custom_fields' kaldırıldı, 'refs' korundu.
+        jira_link_html = f'<p><strong>🔗 Jira Task:</strong> <a href="{self.jira_url}/browse/{jira_key}" target="_blank">{jira_key}</a></p><hr>'
+        final_desc = jira_link_html + desc_html
+
         pl = {
-            "name": info['summary'],
-            "folder_id": folder_id_int,
-            "template_id": 2,
-            "state_id": 4,
-            "priority_id": 2,
-            "estimate": 0,
+            "name": info['summary'], "folder_id": folder_id_int,
+            "template_id": 2, "state_id": 4, "priority_id": 2, "estimate": 0,
             "refs": str(jira_key),
-            "custom_description": desc_html,
+            "custom_description": final_desc,
             "custom_steps": f_steps
         }
 
         r = self.session.post(f"{self.testmo_url}/projects/{pid}/cases", json={"cases": [pl]},
                               headers={'Content-Type': 'application/json'})
-
         if r.status_code in [200, 201]:
             d = r.json()
-            if 'result' in d and d['result']: return d['result'][0]
-            if 'cases' in d and d['cases']: return d['cases'][0]
-            return d
-        else:
-            logger.error(f"Create Case Error: {r.status_code} - {r.text}")
-            return None
+            return d['result'][0] if 'result' in d else d['cases'][0]
+        return None
 
     def process_single_task(self, key, pid, fid, force_update=False):
         key = key.strip().upper()
@@ -434,17 +455,13 @@ class QuickCaseSyncService:
 
             attachments = self.get_attachments(key)
             downloaded_images = []
-
             if attachments:
-                logger.info(f"Task {key} için {len(attachments)} attachment bulundu...")
                 with ThreadPoolExecutor(max_workers=5) as executor:
                     future_to_att = {executor.submit(self.download_image, att['url'], True): att for att in attachments}
                     for future in as_completed(future_to_att):
-                        att = future_to_att[future]
-                        img_content = future.result()
-                        if img_content:
-                            fname = att.get('filename', 'image.jpg')
-                            downloaded_images.append((img_content, fname))
+                        content = future.result()
+                        if content: downloaded_images.append(
+                            (content, future_to_att[future].get('filename', 'img.jpg')))
 
             target_case = None
             action_type = "created"
@@ -464,49 +481,36 @@ class QuickCaseSyncService:
                 case_name = info['summary']
                 logger.info(f"Case {action_type.upper()}! ID: {case_id}.")
 
-                # YENİ: Jira'ya Remote Link ekle
+                # 1. JIRA REMOTE LINK EKLEME (OTOMATİK)
+                # Burada Jira'ya geri bildirim yapıyoruz
+                logger.info(f"Adding Jira remote link for Case {case_id}")
                 self.add_jira_remote_link(key, case_id, pid, case_name)
 
                 upload_count = 0
-
                 images_to_upload = downloaded_images
 
+                # Update sırasında aynı resimleri yükleme
                 if action_type == "updated" and downloaded_images:
                     try:
                         existing_atts = self.get_case_attachments(case_id)
                         existing_filenames = {att.get('name') for att in existing_atts}
-
-                        images_to_upload = []
-                        for img_content, filename in downloaded_images:
-                            if filename not in existing_filenames:
-                                images_to_upload.append((img_content, filename))
-                            else:
-                                logger.info(f"Skipping existing image: {filename}")
-                    except Exception as e:
-                        logger.error(f"Error filtering images: {e}")
-                        images_to_upload = downloaded_images
+                        images_to_upload = [(c, n) for c, n in downloaded_images if n not in existing_filenames]
+                    except:
+                        pass
 
                 if images_to_upload and case_id:
                     with ThreadPoolExecutor(max_workers=3) as executor:
-                        futures = [
-                            executor.submit(self.upload_attachment_to_case, case_id, img_content, filename, pid)
-                            for img_content, filename in images_to_upload]
-                        for future in as_completed(futures):
-                            if future.result(): upload_count += 1
+                        futures = [executor.submit(self.upload_attachment_to_case, case_id, img[0], img[1], pid) for img
+                                   in images_to_upload]
+                        for f in as_completed(futures):
+                            if f.result(): upload_count += 1
 
                 self.add_jira_comment(key, case_name, is_update=(action_type == "updated"))
-
-                result.update({
-                    'status': 'success',
-                    'case_name': case_name,
-                    'images': upload_count,
-                    'steps': len(steps),
-                    'action': action_type
-                })
+                result.update({'status': 'success', 'case_name': case_name, 'images': upload_count, 'steps': len(steps),
+                               'action': action_type})
             else:
                 result['msg'] = 'Case oluşturulamadı veya güncellenemedi'
-                if not result.get('msg'): result['msg'] = "API Hatası"
         except Exception as e:
-            logger.exception(f"Process Error General: {e}")
+            logger.exception(f"Process Error: {e}")
             result['msg'] = str(e)
         return result
