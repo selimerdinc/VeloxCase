@@ -108,7 +108,7 @@ class QuickCaseSyncService:
     def add_jira_comment(self, key, case_name, is_update=False):
         url = f"{self.jira_url}/rest/api/3/issue/{key}/comment"
         action_text = "GÜNCELLENEN Case" if is_update else "Oluşturulan Case"
-        msg = f"✅ VeloxCase: Testmo aktarımı tamamlandı.\n{action_text}: {case_name}"
+        msg = f"✅ Testmo aktarımı tamamlandı.\n{action_text}: {case_name}"
         payload = {"body": {"type": "doc", "version": 1,
                             "content": [{"type": "paragraph", "content": [{"text": msg, "type": "text"}]}]}}
         try:
