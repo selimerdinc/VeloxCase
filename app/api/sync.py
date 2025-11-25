@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from app.extensions import db
 from app.models.user import User
 from app.models.history import History
-from app.services.sync_service import QuickCaseSyncService
+from app.services.sync_service import VeloxCaseSyncService
 
 sync_bp = Blueprint('sync', __name__, url_prefix='/api')
 
@@ -35,7 +35,7 @@ def get_folders(id):
         description: Klasör listesi
     """
     user = User.query.filter_by(username=get_jwt_identity()).first()
-    return jsonify({'folders': QuickCaseSyncService(user.id).get_folders(id)})
+    return jsonify({'folders': VeloxCaseSyncService(user.id).get_folders(id)})
 
 
 @sync_bp.route('/folders/<int:id>', methods=['POST'])
@@ -72,7 +72,7 @@ def create_folder(id):
     """
     try:
         user = User.query.filter_by(username=get_jwt_identity()).first()
-        return jsonify(QuickCaseSyncService(user.id).create_folder(id, request.json.get('name', 'Yeni'),
+        return jsonify(VeloxCaseSyncService(user.id).create_folder(id, request.json.get('name', 'Yeni'),
                                                                    request.json.get('parent_id')))
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -109,7 +109,7 @@ def preview_task():
     try:
         d = request.json
         user = User.query.filter_by(username=get_jwt_identity()).first()
-        qc = QuickCaseSyncService(user.id)
+        qc = VeloxCaseSyncService(user.id)
 
         key = d.get('task_key', '').strip()
         if not key: return jsonify({'error': 'Boş ID'}), 400
@@ -169,7 +169,7 @@ def sync():
     """
     d = request.json
     user = User.query.filter_by(username=get_jwt_identity()).first()
-    qc = QuickCaseSyncService(user.id)
+    qc = VeloxCaseSyncService(user.id)
 
     task_keys = [k.strip() for k in d.get('jira_input', '').split(',') if k.strip()]
     if len(task_keys) > 3: return jsonify({'error': 'Maksimum 3 Task'}), 400
