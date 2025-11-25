@@ -200,7 +200,6 @@ class QuickCaseSyncService:
 
     def upload_attachment_to_case(self, case_id, file_content, filename="screenshot.jpg", project_id=None):
         try:
-            # Case bazlı upload endpointi
             url = f"{self.testmo_url}/cases/{case_id}/attachments/single"
 
             mime_type, _ = mimetypes.guess_type(filename)
@@ -231,7 +230,7 @@ class QuickCaseSyncService:
             logger.exception(f"Upload Exception: {e}")
             return False
 
-    # --- YENİ: Case'e ait mevcut ekleri getirir (Resim İkilemesini Önlemek İçin) ---
+    # --- EK DOSYALARI GETİR (Resim İkilemesini Önlemek İçin) ---
     def get_case_attachments(self, case_id):
         try:
             url = f"{self.testmo_url}/cases/{case_id}/attachments"
@@ -244,11 +243,8 @@ class QuickCaseSyncService:
             logger.error(f"Get Case Attachments Error: {e}")
             return []
 
-    # --- DUPLICATE CHECK (Pagination Destekli) ---
+    # --- DUPLICATE CHECK ---
     def find_case_in_folder(self, pid, fid, case_name):
-        """
-        Hedef klasörde aynı isimde bir case var mı? (Tüm sayfaları tarar)
-        """
         try:
             page = 1
             target_name = case_name.strip().lower()
@@ -279,11 +275,10 @@ class QuickCaseSyncService:
             logger.error(f"Find Case Error: {e}")
             return None
 
-    # --- CASE GÜNCELLEME (DÜZELTİLDİ) ---
+    # --- CASE GÜNCELLEME (HATA ÇÖZÜMÜ) ---
     def update_case_embedded(self, pid, case_id, info, steps, jira_key, jira_id=None):
         """
-        Case Güncelleme (PATCH /api/v1/projects/{pid}/cases)
-        Payload: ids: [case_id]
+        Mevcut Case'i Güncelle. ID dönmezse manuel olarak ID'yi ekle.
         """
         desc_html = info['description_html']
         desc_img_urls = self.extract_imgs_from_html(desc_html)
@@ -302,10 +297,8 @@ class QuickCaseSyncService:
                 "text3": f"<p>{step['expected_result']}</p><p><em>Status: {step['status']}</em></p>"
             })
 
-        # DÜZELTME: Jira Key'i string olarak 'issues' alanına gönderiyoruz
         pl = {
             "ids": [int(case_id)],
-            "name": info['summary'],
             "template_id": 2,
             "state_id": 4,
             "priority_id": 2,
@@ -315,30 +308,43 @@ class QuickCaseSyncService:
             "custom_steps": f_steps
         }
 
-        # Jira Bağlantısı: Hem string key hem int ID (hangisi çalışırsa)
-        pl["issues"] = [str(jira_key)]  # Çoğu entegrasyon Key bekler
+        if jira_id:
+            pl["issues"] = [int(jira_id)]
 
         url = f"{self.testmo_url}/projects/{pid}/cases"
         r = self.session.patch(url, json=pl, headers={'Content-Type': 'application/json'})
 
         if r.status_code in [200, 201]:
             d = r.json()
-            if 'cases' in d and d['cases']: return d['cases'][0]
-            return d.get('data', d)
+            # API'den dönen nesneyi bulmaya çalış
+            result_obj = None
+            if 'cases' in d and d['cases']:
+                result_obj = d['cases'][0]
+            elif 'result' in d and d['result']:
+                result_obj = d['result'][0]
+            else:
+                result_obj = d.get('data', d)
+
+            # --- KRİTİK DÜZELTME ---
+            # Eğer dönen cevapta 'id' yoksa (bulk update sadece count dönebilir),
+            # biz işlem başarılı olduğu için bildiğimiz ID'yi ekliyoruz.
+            if not isinstance(result_obj, dict) or 'id' not in result_obj:
+                logger.info(f"Update API success but no ID returned. Manually injecting ID: {case_id}")
+                return {'id': case_id, 'name': info['summary'], 'updated': True}
+
+            return result_obj
         else:
             # Fallback PUT
             if r.status_code == 405:
                 r = self.session.put(url, json=pl, headers={'Content-Type': 'application/json'})
                 if r.status_code in [200, 201]:
-                    d = r.json()
-                    if 'cases' in d and d['cases']: return d['cases'][0]
-                    return d
+                    # Burada da aynı ID kontrolü
+                    return {'id': case_id, 'name': info['summary'], 'updated': True}
 
             logger.error(f"Update Case Error: {r.status_code} - {r.text} | URL: {url}")
             return None
 
     def create_case_embedded(self, pid, fid, info, steps, jira_key, jira_id=None):
-        """Yeni Case Oluştur (POST)"""
         try:
             folder_id_int = int(fid)
         except (ValueError, TypeError):
@@ -374,8 +380,8 @@ class QuickCaseSyncService:
             "custom_steps": f_steps
         }
 
-        # DÜZELTME: Jira Key'i string olarak gönderiyoruz
-        pl["issues"] = [str(jira_key)]
+        if jira_id:
+            pl["issues"] = [int(jira_id)]
 
         r = self.session.post(f"{self.testmo_url}/projects/{pid}/cases", json={"cases": [pl]},
                               headers={'Content-Type': 'application/json'})
@@ -443,14 +449,15 @@ class QuickCaseSyncService:
             else:
                 target_case = self.create_case_embedded(pid, fid, info, steps, key, info.get('id'))
 
-            if target_case:
+            # Check ID: Eğer target_case varsa ama id yoksa manuel eklemiş olabiliriz, onu kontrol et
+            if target_case and ('id' in target_case or target_case.get('updated')):
                 case_id = target_case.get('id')
                 case_name = info['summary']
                 logger.info(f"Case {action_type.upper()}! ID: {case_id}.")
 
                 upload_count = 0
 
-                # --- AKILLI RESİM FİLTRELEME (GERİ EKLENDİ) ---
+                # --- RESİM FİLTRELEME VE YÜKLEME ---
                 images_to_upload = downloaded_images
 
                 if action_type == "updated" and downloaded_images:
@@ -487,6 +494,7 @@ class QuickCaseSyncService:
                 })
             else:
                 result['msg'] = 'Case oluşturulamadı veya güncellenemedi'
+                if not result.get('msg'): result['msg'] = "API Hatası"
         except Exception as e:
             logger.exception(f"Process Error General: {e}")
             result['msg'] = str(e)
