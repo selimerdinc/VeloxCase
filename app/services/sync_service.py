@@ -116,6 +116,41 @@ class QuickCaseSyncService:
         except:
             pass
 
+    # --- YENİ: JIRA REMOTE LINK EKLEME ---
+    def add_jira_remote_link(self, jira_key, case_id, pid, case_name):
+        """
+        Jira task'ına Testmo Case'i için tıklanabilir bir 'Web Link' ekler.
+        """
+        try:
+            # Testmo Case URL'ini oluştur (Repository view linki)
+            # Not: URL yapısı Testmo versiyonuna göre değişebilir, en yaygın olanı:
+            case_url = f"{self.testmo_url.replace('/api/v1', '')}/repositories/{pid}?case_id={case_id}"
+
+            url = f"{self.jira_url}/rest/api/3/issue/{jira_key}/remotelink"
+
+            payload = {
+                "object": {
+                    "url": case_url,
+                    "title": f"Testmo Case: {case_name}",
+                    "icon": {
+                        "url16x16": f"{self.testmo_url.replace('/api/v1', '')}/favicon.ico",
+                        "title": "Testmo"
+                    }
+                }
+            }
+
+            r = self.session.post(url, json=payload, auth=self.jira_auth, headers={'Content-Type': 'application/json'})
+
+            if r.status_code in [200, 201]:
+                logger.info(f"Jira Remote Link added to {jira_key}")
+                return True
+            else:
+                logger.warning(f"Failed to add Jira link: {r.status_code} - {r.text}")
+                return False
+        except Exception as e:
+            logger.error(f"Add Jira Link Exception: {e}")
+            return False
+
     def parse_cases(self, html_txt):
         txt = html_txt.replace('<br>', '\n').replace('<br/>', '\n').replace('</p>', '\n').replace('</div>', '\n')
         clean_text = re.sub(r'<[^>]+>', '', txt)
@@ -291,7 +326,7 @@ class QuickCaseSyncService:
                 "text3": f"<p>{step['expected_result']}</p><p><em>Status: {step['status']}</em></p>"
             })
 
-        # KESİN ÇÖZÜM: Jira linkini 'jira_issue' özel alanına yazıyoruz
+        # DÜZELTME: 'custom_fields' kaldırıldı, 'refs' korundu.
         pl = {
             "ids": [int(case_id)],
             "name": info['summary'],
@@ -299,14 +334,12 @@ class QuickCaseSyncService:
             "state_id": 4,
             "priority_id": 2,
             "estimate": 0,
+            "refs": str(jira_key),
             "custom_description": desc_html,
-            "custom_steps": f_steps,
-            "custom_fields": {
-                # Jira'ya tam link veriyoruz
-                "jira_issue": f"{self.jira_url}/browse/{str(jira_key)}"
-            }
+            "custom_steps": f_steps
         }
 
+        # Bulk Update URL'i
         url = f"{self.testmo_url}/projects/{pid}/cases"
         r = self.session.patch(url, json=pl, headers={'Content-Type': 'application/json'})
 
@@ -321,6 +354,7 @@ class QuickCaseSyncService:
                     d = r.json()
                     if 'cases' in d and d['cases']: return d['cases'][0]
                     return d
+
             logger.error(f"Update Case Error: {r.status_code} - {r.text} | URL: {url}")
             return None
 
@@ -348,7 +382,7 @@ class QuickCaseSyncService:
                 "text3": f"<p>{step['expected_result']}</p><p><em>Status: {step['status']}</em></p>"
             })
 
-        # KESİN ÇÖZÜM: Jira linkini 'jira_issue' özel alanına yazıyoruz
+        # DÜZELTME: 'custom_fields' kaldırıldı, 'refs' korundu.
         pl = {
             "name": info['summary'],
             "folder_id": folder_id_int,
@@ -356,12 +390,9 @@ class QuickCaseSyncService:
             "state_id": 4,
             "priority_id": 2,
             "estimate": 0,
+            "refs": str(jira_key),
             "custom_description": desc_html,
-            "custom_steps": f_steps,
-            "custom_fields": {
-                # Jira'ya tam link veriyoruz
-                "jira_issue": f"{self.jira_url}/browse/{str(jira_key)}"
-            }
+            "custom_steps": f_steps
         }
 
         r = self.session.post(f"{self.testmo_url}/projects/{pid}/cases", json={"cases": [pl]},
@@ -384,7 +415,6 @@ class QuickCaseSyncService:
             info = self.get_issue(key)
             if not info['summary']:
                 result['msg'] = 'Task bulunamadı'
-                logger.warning(f"Task not found: {key}")
                 return result
 
             if not force_update:
@@ -434,6 +464,9 @@ class QuickCaseSyncService:
                 case_name = info['summary']
                 logger.info(f"Case {action_type.upper()}! ID: {case_id}.")
 
+                # YENİ: Jira'ya Remote Link ekle
+                self.add_jira_remote_link(key, case_id, pid, case_name)
+
                 upload_count = 0
 
                 images_to_upload = downloaded_images
@@ -472,6 +505,7 @@ class QuickCaseSyncService:
                 })
             else:
                 result['msg'] = 'Case oluşturulamadı veya güncellenemedi'
+                if not result.get('msg'): result['msg'] = "API Hatası"
         except Exception as e:
             logger.exception(f"Process Error General: {e}")
             result['msg'] = str(e)
