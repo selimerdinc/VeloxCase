@@ -230,7 +230,6 @@ class QuickCaseSyncService:
             logger.exception(f"Upload Exception: {e}")
             return False
 
-    # --- EK DOSYALARI GETİR (Resim İkilemesini Önlemek İçin) ---
     def get_case_attachments(self, case_id):
         try:
             url = f"{self.testmo_url}/cases/{case_id}/attachments"
@@ -243,7 +242,6 @@ class QuickCaseSyncService:
             logger.error(f"Get Case Attachments Error: {e}")
             return []
 
-    # --- DUPLICATE CHECK ---
     def find_case_in_folder(self, pid, fid, case_name):
         try:
             page = 1
@@ -275,11 +273,7 @@ class QuickCaseSyncService:
             logger.error(f"Find Case Error: {e}")
             return None
 
-    # --- CASE GÜNCELLEME (HATA ÇÖZÜMÜ) ---
     def update_case_embedded(self, pid, case_id, info, steps, jira_key, jira_id=None):
-        """
-        Mevcut Case'i Güncelle. ID dönmezse manuel olarak ID'yi ekle.
-        """
         desc_html = info['description_html']
         desc_img_urls = self.extract_imgs_from_html(desc_html)
 
@@ -297,50 +291,36 @@ class QuickCaseSyncService:
                 "text3": f"<p>{step['expected_result']}</p><p><em>Status: {step['status']}</em></p>"
             })
 
+        # KESİN ÇÖZÜM: Jira linkini 'jira_issue' özel alanına yazıyoruz
         pl = {
             "ids": [int(case_id)],
+            "name": info['summary'],
             "template_id": 2,
             "state_id": 4,
             "priority_id": 2,
             "estimate": 0,
-            "refs": str(jira_key),
             "custom_description": desc_html,
-            "custom_steps": f_steps
+            "custom_steps": f_steps,
+            "custom_fields": {
+                # Jira'ya tam link veriyoruz
+                "jira_issue": f"{self.jira_url}/browse/{str(jira_key)}"
+            }
         }
-
-        if jira_id:
-            pl["issues"] = [int(jira_id)]
 
         url = f"{self.testmo_url}/projects/{pid}/cases"
         r = self.session.patch(url, json=pl, headers={'Content-Type': 'application/json'})
 
         if r.status_code in [200, 201]:
             d = r.json()
-            # API'den dönen nesneyi bulmaya çalış
-            result_obj = None
-            if 'cases' in d and d['cases']:
-                result_obj = d['cases'][0]
-            elif 'result' in d and d['result']:
-                result_obj = d['result'][0]
-            else:
-                result_obj = d.get('data', d)
-
-            # --- KRİTİK DÜZELTME ---
-            # Eğer dönen cevapta 'id' yoksa (bulk update sadece count dönebilir),
-            # biz işlem başarılı olduğu için bildiğimiz ID'yi ekliyoruz.
-            if not isinstance(result_obj, dict) or 'id' not in result_obj:
-                logger.info(f"Update API success but no ID returned. Manually injecting ID: {case_id}")
-                return {'id': case_id, 'name': info['summary'], 'updated': True}
-
-            return result_obj
+            if 'cases' in d and d['cases']: return d['cases'][0]
+            return d.get('data', d)
         else:
-            # Fallback PUT
             if r.status_code == 405:
                 r = self.session.put(url, json=pl, headers={'Content-Type': 'application/json'})
                 if r.status_code in [200, 201]:
-                    # Burada da aynı ID kontrolü
-                    return {'id': case_id, 'name': info['summary'], 'updated': True}
-
+                    d = r.json()
+                    if 'cases' in d and d['cases']: return d['cases'][0]
+                    return d
             logger.error(f"Update Case Error: {r.status_code} - {r.text} | URL: {url}")
             return None
 
@@ -368,6 +348,7 @@ class QuickCaseSyncService:
                 "text3": f"<p>{step['expected_result']}</p><p><em>Status: {step['status']}</em></p>"
             })
 
+        # KESİN ÇÖZÜM: Jira linkini 'jira_issue' özel alanına yazıyoruz
         pl = {
             "name": info['summary'],
             "folder_id": folder_id_int,
@@ -375,13 +356,13 @@ class QuickCaseSyncService:
             "state_id": 4,
             "priority_id": 2,
             "estimate": 0,
-            "refs": str(jira_key),
             "custom_description": desc_html,
-            "custom_steps": f_steps
+            "custom_steps": f_steps,
+            "custom_fields": {
+                # Jira'ya tam link veriyoruz
+                "jira_issue": f"{self.jira_url}/browse/{str(jira_key)}"
+            }
         }
-
-        if jira_id:
-            pl["issues"] = [int(jira_id)]
 
         r = self.session.post(f"{self.testmo_url}/projects/{pid}/cases", json={"cases": [pl]},
                               headers={'Content-Type': 'application/json'})
@@ -406,7 +387,6 @@ class QuickCaseSyncService:
                 logger.warning(f"Task not found: {key}")
                 return result
 
-            # DUPLICATE CHECK
             if not force_update:
                 existing_case = self.find_case_in_folder(pid, fid, info['summary'])
                 if existing_case:
@@ -449,15 +429,13 @@ class QuickCaseSyncService:
             else:
                 target_case = self.create_case_embedded(pid, fid, info, steps, key, info.get('id'))
 
-            # Check ID: Eğer target_case varsa ama id yoksa manuel eklemiş olabiliriz, onu kontrol et
-            if target_case and ('id' in target_case or target_case.get('updated')):
+            if target_case:
                 case_id = target_case.get('id')
                 case_name = info['summary']
                 logger.info(f"Case {action_type.upper()}! ID: {case_id}.")
 
                 upload_count = 0
 
-                # --- RESİM FİLTRELEME VE YÜKLEME ---
                 images_to_upload = downloaded_images
 
                 if action_type == "updated" and downloaded_images:
@@ -494,7 +472,6 @@ class QuickCaseSyncService:
                 })
             else:
                 result['msg'] = 'Case oluşturulamadı veya güncellenemedi'
-                if not result.get('msg'): result['msg'] = "API Hatası"
         except Exception as e:
             logger.exception(f"Process Error General: {e}")
             result['msg'] = str(e)
