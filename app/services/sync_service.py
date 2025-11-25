@@ -105,7 +105,7 @@ class VeloxCaseSyncService:
     def add_jira_comment(self, key, case_name, is_update=False):
         url = f"{self.jira_url}/rest/api/3/issue/{key}/comment"
         action_text = "GÜNCELLENEN Case" if is_update else "Oluşturulan Case"
-        msg = f"✅ VeloxCase: Testmo aktarımı tamamlandı.\n{action_text}: {case_name}"
+        msg = f"✅Testmo aktarımı tamamlandı.\n{action_text}: {case_name}"
         payload = {"body": {"type": "doc", "version": 1,
                             "content": [{"type": "paragraph", "content": [{"text": msg, "type": "text"}]}]}}
         try:
@@ -113,7 +113,6 @@ class VeloxCaseSyncService:
         except:
             pass
 
-    # --- JIRA REMOTE LINK (WEB LINK) FONKSİYONLARI (GERİ EKLENDİ) ---
     def delete_existing_remote_links(self, jira_key):
         """Jira taskındaki eski Testmo linklerini temizler (Duplicate önleme)"""
         try:
@@ -446,11 +445,63 @@ class VeloxCaseSyncService:
             logger.error(f"Create Case Error: {r.status_code} - {r.text}")
             return None
 
+    def check_and_clean_dead_links(self, jira_key):
+        """
+        Jira taskındaki Testmo linklerini kontrol eder.
+        Eğer Testmo'da case silinmişse, Jira'daki linki de siler.
+        """
+        logger.info(f"Checking dead links for {jira_key}...")
+        try:
+            # 1. Jira'daki remote linkleri çek
+            url = f"{self.jira_url}/rest/api/3/issue/{jira_key}/remotelink"
+            r = self.session.get(url, auth=self.jira_auth)
+
+            if r.status_code != 200:
+                logger.warning(f"Could not fetch Jira links: {r.status_code}")
+                return
+
+            links = r.json()
+            cleaned_count = 0
+
+            for link in links:
+                title = link.get('object', {}).get('title', '')
+                link_url = link.get('object', {}).get('url', '')
+                link_id = link.get('id')
+
+                # Sadece Testmo linklerini kontrol et
+                if "Testmo" in title or self.testmo_url.replace('/api/v1', '') in link_url:
+
+                    # URL'den Case ID'yi ayıkla (case_id=12345)
+                    match = re.search(r'case_id=(\d+)', link_url)
+                    if match:
+                        case_id = match.group(1)
+
+                        # 2. Testmo'ya sor: Bu case duruyor mu?
+                        # Not: GET /cases/{id} endpoint'i kullanılır
+                        testmo_check_url = f"{self.testmo_url}/cases/{case_id}"
+                        tm_r = self.session.get(testmo_check_url, headers={'Content-Type': 'application/json'})
+
+                        # 3. Eğer 404 (Not Found) veya 400 dönerse SİL
+                        if tm_r.status_code in [404, 400]:
+                            logger.info(f"Dead link found (Case {case_id} deleted). Removing from Jira...")
+                            del_url = f"{self.jira_url}/rest/api/3/issue/{jira_key}/remotelink/{link_id}"
+                            self.session.delete(del_url, auth=self.jira_auth)
+                            cleaned_count += 1
+
+            if cleaned_count > 0:
+                logger.info(f"Cleaned {cleaned_count} dead links for {jira_key}.")
+            else:
+                logger.info(f"No dead links found for {jira_key}.")
+
+        except Exception as e:
+            logger.error(f"Cleanup Error: {e}")
+
     def process_single_task(self, key, pid, fid, force_update=False):
         key = key.strip().upper()
         result = {'task': key, 'status': 'error', 'msg': '', 'case_name': ''}
 
         try:
+            self.check_and_clean_dead_links(key)
             info = self.get_issue(key)
             if not info['summary']:
                 result['msg'] = 'Task bulunamadı'
