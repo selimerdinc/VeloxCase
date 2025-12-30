@@ -1,0 +1,69 @@
+# VeloxCase - Docker Compose (Production)
+# Kullanım: docker-compose -f docker-compose.prod.yml up -d
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: veloxcase-db-prod
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-veloxcase}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Database password required}
+      POSTGRES_DB: ${DB_NAME:-veloxcase}
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-veloxcase}" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - veloxcase-internal
+
+  # Backend API (Flask + Gunicorn)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: veloxcase-backend-prod
+    restart: always
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER:-veloxcase}:${DB_PASSWORD}@db:5432/${DB_NAME:-veloxcase}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?JWT secret key required}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:?Encryption key required}
+      - FLASK_DEBUG=false
+    ports:
+      - "127.0.0.1:5002:5000"
+    volumes:
+      - backend_logs_prod:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - veloxcase-internal
+
+  # Frontend (React + Nginx)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        REACT_APP_API_URL: ${API_URL:-https://veloxcase.selimerdinc.com/api}
+    container_name: veloxcase-frontend-prod
+    restart: always
+    ports:
+      - "127.0.0.1:3002:80"
+    depends_on:
+      - backend
+    networks:
+      - veloxcase-internal
+
+volumes:
+  postgres_data_prod:
+  backend_logs_prod:
+
+
+networks:
+  veloxcase-internal:
+    driver: bridge
