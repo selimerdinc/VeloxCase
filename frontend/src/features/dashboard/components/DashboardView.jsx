@@ -108,17 +108,17 @@ function DashboardView(props) {
               </label>
 
               {showNewFolder && (
-                <div className="new-folder-wrapper" style={{ flexDirection: 'column', gap: '8px' }}>
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <div className="new-folder-wrapper" style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%', padding: '12px', background: 'var(--card-bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center', width: '100%' }}>
                     <input
                       className={`form-input ${dashboardErrors.newFolderName ? 'input-error' : ''}`}
-                      placeholder="Klasör Adını Yazın"
+                      placeholder="Yeni Klasör Adını Yazın..."
                       value={newFolderName}
                       onChange={e => setNewFolderName(e.target.value)}
                       aria-label="Yeni Klasör Adı"
-                      style={{ flex: 1 }}
+                      style={{ flex: 1, minWidth: '200px' }}
                     />
-                    <button onClick={handleCreateFolder} className="btn btn-success" aria-label="Klasör Oluştur">
+                    <button onClick={handleCreateFolder} className="btn btn-success" aria-label="Klasör Oluştur" style={{ whiteSpace: 'nowrap' }}>
                       <PlusCircle size={18} /> Oluştur
                     </button>
                   </div>
@@ -126,7 +126,7 @@ function DashboardView(props) {
                     className="form-select"
                     value={parentFolderForNew || ''}
                     onChange={e => setParentFolderForNew(e.target.value ? parseInt(e.target.value, 10) : null)}
-                    style={{ fontSize: '0.85rem', fontFamily: 'monospace' }}
+                    style={{ fontSize: '0.9rem', fontFamily: 'monospace', width: '100%' }}
                     aria-label="Ana Klasör Seçimi"
                   >
                     <option value="">📁 Ana Dizinde Oluştur (Kök)</option>
