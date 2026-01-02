@@ -155,13 +155,13 @@ function DashboardView(props) {
                   aria-label="Hedef Klasör Seçimi"
                   style={{ fontFamily: 'monospace' }}
                 >
-                  <option value="">{foldersLoading ? 'Klasörler Yükleniyor...' : '📁 Hedef Klasörü Seçin'}</option>
+                  <option value="">{foldersLoading ? '⏳ Klasörler Yükleniyor...' : '📁 Hedef Klasörü Seçin'}</option>
                   {folders.length === 0 && !foldersLoading && (
-                    <option value="" disabled>Henüz Klasör Bulunmuyor</option>
+                    <option value="" disabled>📭 Henüz Klasör Bulunmuyor</option>
                   )}
                   {folders.map(f => (
                     <option key={f.id} value={f.id}>
-                      {f.displayName || f.name}
+                      {f.level > 0 ? '   '.repeat(f.level) + '└📂 ' : '📁 '}{f.name}
                     </option>
                   ))}
                 </select>
