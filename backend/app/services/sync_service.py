@@ -41,6 +41,14 @@ class VeloxCaseSyncService:
         jira_email = self._get_setting("JIRA_EMAIL")
         jira_token = self._get_setting("JIRA_API_TOKEN")
 
+        # DEBUG: User ayarlarını logla
+        if not testmo_key:
+            logger.warning(f"⚠️ User {self.user_id}: TESTMO_API_KEY boş veya deşifre edilemedi!")
+        if not jira_token:
+            logger.warning(f"⚠️ User {self.user_id}: JIRA_API_TOKEN boş veya deşifre edilemedi!")
+        if not jira_email:
+            logger.warning(f"⚠️ User {self.user_id}: JIRA_EMAIL boş!")
+
         self.jira_url = self._get_setting("JIRA_BASE_URL").rstrip('/')
         if self.jira_url and not self.jira_url.startswith('http'):
             self.jira_url = f"https://{self.jira_url}"
