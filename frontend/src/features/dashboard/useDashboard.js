@@ -58,31 +58,45 @@ export const useDashboard = (token, currentView, onLogout, navigate) => {
         setFoldersLoading(true);
         try {
             const res = await axios.get(`${config.API_BASE_URL}/folders/${repoId}`);
-            let list = res.data.folders || [];
+            const list = res.data.folders || [];
 
-            // Tree yapısı oluştur - parent_id: null, undefined, 0 hepsini root olarak say
-            const buildTree = (items, parentId = null, level = 0) => {
-                const isRoot = (pid) => pid === null || pid === undefined || pid === 0;
+            // Mevcut tüm ID'leri set olarak tut
+            const allIds = new Set(list.map(f => f.id));
 
-                return items
-                    .filter(item => {
-                        if (parentId === null) {
-                            return isRoot(item.parent_id);
-                        }
-                        return item.parent_id === parentId;
-                    })
-                    .sort((a, b) => a.name.localeCompare(b.name, 'tr', { sensitivity: 'base' }))
-                    .flatMap(item => [
-                        { ...item, level, displayName: '  '.repeat(level) + (level > 0 ? '└─ ' : '') + item.name },
-                        ...buildTree(items, item.id, level + 1)
-                    ]);
+            // Orphan check: parent_id var ama listede yoksa, bu folder'ı root gibi davran
+            const isOrphan = (folder) => {
+                return folder.parent_id && !allIds.has(folder.parent_id);
             };
 
-            // Tree yap, eğer bazı klasörler kaybolursa flat listeye dön
-            const treeList = buildTree(list);
-            const processedList = treeList.length >= list.length
-                ? treeList
-                : list.sort((a, b) => a.name.localeCompare(b.name, 'tr', { sensitivity: 'base' }));
+            // Root mu kontrolü: parent_id yok VEYA orphan
+            const isRoot = (folder) => {
+                return !folder.parent_id || folder.parent_id === 0 || isOrphan(folder);
+            };
+
+            // Tree yapısı oluştur
+            const buildTree = (items, parentId = null, level = 0) => {
+                let filtered;
+
+                if (parentId === null) {
+                    // Root seviyesi: parent_id yok veya orphan olanlar
+                    filtered = items.filter(item => isRoot(item));
+                } else {
+                    // Child seviyesi
+                    filtered = items.filter(item => item.parent_id === parentId);
+                }
+
+                return filtered
+                    .sort((a, b) => a.name.localeCompare(b.name, 'tr', { sensitivity: 'base' }))
+                    .flatMap(item => {
+                        const prefix = level > 0 ? '   '.repeat(level) + '└📂 ' : '📁 ';
+                        return [
+                            { ...item, level, displayName: prefix + item.name },
+                            ...buildTree(items, item.id, level + 1)
+                        ];
+                    });
+            };
+
+            const processedList = buildTree(list);
 
             setFolders(processedList);
 
