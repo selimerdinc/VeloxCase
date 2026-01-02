@@ -123,16 +123,28 @@ function DashboardView(props) {
               <div className="input-container">
                 <select
                   className={`form-select ${dashboardErrors.selectedFolder ? 'input-error' : ''}`}
-                  value={selectedFolder}
-                  onChange={e => setSelectedFolder(e.target.value)}
+                  value={selectedFolder || ''}
+                  onChange={e => {
+                    const val = e.target.value ? parseInt(e.target.value, 10) : null;
+                    setSelectedFolder(val);
+                    // LocalStorage'a kaydet
+                    if (val) {
+                      localStorage.setItem(`veloxcase_folder_${repoId}`, val.toString());
+                    }
+                  }}
                   disabled={foldersLoading}
                   aria-label="Hedef Klasör Seçimi"
+                  style={{ fontFamily: 'monospace' }}
                 >
-                  <option value="">{foldersLoading ? 'Klasörler Yükleniyor...' : 'Hedef Klasörü Seçin'}</option>
+                  <option value="">{foldersLoading ? 'Klasörler Yükleniyor...' : '📁 Hedef Klasörü Seçin'}</option>
                   {folders.length === 0 && !foldersLoading && (
                     <option value="" disabled>Henüz Klasör Bulunmuyor</option>
                   )}
-                  {folders.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                  {folders.map(f => (
+                    <option key={f.id} value={f.id}>
+                      {f.displayName || f.name}
+                    </option>
+                  ))}
                 </select>
                 {dashboardErrors.selectedFolder && <p className="helper-text text-red" style={{ color: 'var(--error)' }}>Lütfen Test Kayıtları İçin Hedef Klasör Seçin.</p>}
               </div>

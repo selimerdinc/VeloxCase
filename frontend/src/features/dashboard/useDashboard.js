@@ -12,13 +12,14 @@ export const useDashboard = (token, currentView, onLogout, navigate) => {
     // --- DASHBOARD STATE'leri ---
     const [repoId, setRepoId] = useState(1);
     const [folders, setFolders] = useState([]);
-    const [selectedFolder, setSelectedFolder] = useState('');
+    const [selectedFolder, setSelectedFolder] = useState(null);  // null = seçilmemiş
     const [jiraInput, setJiraInput] = useState('');
     const [loading, setLoading] = useState(false);
     const [foldersLoading, setFoldersLoading] = useState(false);
     const [syncResults, setSyncResults] = useState([]);
     const [showNewFolder, setShowNewFolder] = useState(false);
     const [newFolderName, setNewFolderName] = useState('');
+    const [parentFolderForNew, setParentFolderForNew] = useState(null);  // Yeni klasör için parent
 
     // YENİ: Dashboard Input Hata State'i
     const [dashboardErrors, setDashboardErrors] = useState({
@@ -59,12 +60,31 @@ export const useDashboard = (token, currentView, onLogout, navigate) => {
             const res = await axios.get(`${config.API_BASE_URL}/folders/${repoId}`);
             let list = res.data.folders || [];
 
-            // Alfabetik (Türkçe) Sıralama
-            list.sort((a, b) => a.name.localeCompare(b.name, 'tr', { sensitivity: 'base' }));
+            // Tree yapısı oluştur
+            const buildTree = (items, parentId = null, level = 0) => {
+                return items
+                    .filter(item => item.parent_id === parentId)
+                    .sort((a, b) => a.name.localeCompare(b.name, 'tr', { sensitivity: 'base' }))
+                    .flatMap(item => [
+                        { ...item, level, displayName: '  '.repeat(level) + (level > 0 ? '└─ ' : '') + item.name },
+                        ...buildTree(items, item.id, level + 1)
+                    ]);
+            };
 
-            setFolders(list);
+            // Eğer parent_id varsa tree yap, yoksa flat liste
+            const hasParentIds = list.some(f => f.parent_id !== undefined && f.parent_id !== null);
+            const processedList = hasParentIds ? buildTree(list) : list.sort((a, b) => a.name.localeCompare(b.name, 'tr', { sensitivity: 'base' }));
+
+            setFolders(processedList);
+
+            // LocalStorage'dan son seçilen klasörü restore et
+            const savedFolderId = localStorage.getItem(`veloxcase_folder_${repoId}`);
+            if (savedFolderId && processedList.some(f => f.id === parseInt(savedFolderId, 10))) {
+                setSelectedFolder(parseInt(savedFolderId, 10));
+            }
         } catch (err) {
             if (err.response?.status === 401) onLogout();
+            console.error('Folder fetch error:', err);
         } finally {
             setFoldersLoading(false);
         }
@@ -174,7 +194,7 @@ export const useDashboard = (token, currentView, onLogout, navigate) => {
 
         const newErrors = {
             jiraInput: !jiraInput || jiraInput.trim() === '',
-            selectedFolder: !selectedFolder || selectedFolder === ''
+            selectedFolder: selectedFolder === null || selectedFolder === undefined
         };
         setDashboardErrors(e => ({ ...e, ...newErrors }));
 
