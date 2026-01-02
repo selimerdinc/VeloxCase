@@ -20,6 +20,8 @@ function DashboardView(props) {
     showDuplicateModal, setShowDuplicateModal, duplicateItem, handleForceUpdate,
     // AI ANALYSIS PROP'LARI (YENİ)
     analysisResult, analysisLoading, showAnalysisPanel, setShowAnalysisPanel, handleAnalyze,
+    // PARENT FOLDER SEÇİMİ
+    parentFolderForNew, setParentFolderForNew,
     // SETTINGS DATA (AI TOGGLE İÇİN)
     settingsData
   } = props;
@@ -106,17 +108,34 @@ function DashboardView(props) {
               </label>
 
               {showNewFolder && (
-                <div className="new-folder-wrapper">
-                  <input
-                    className={`form-input ${dashboardErrors.newFolderName ? 'input-error' : ''}`}
-                    placeholder="Klasör Adını Yazın"
-                    value={newFolderName}
-                    onChange={e => setNewFolderName(e.target.value)}
-                    aria-label="Yeni Klasör Adı"
-                  />
-                  <button onClick={handleCreateFolder} className="btn btn-success" aria-label="Klasör Oluştur">
-                    <PlusCircle size={18} /> Oluştur
-                  </button>
+                <div className="new-folder-wrapper" style={{ flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <input
+                      className={`form-input ${dashboardErrors.newFolderName ? 'input-error' : ''}`}
+                      placeholder="Klasör Adını Yazın"
+                      value={newFolderName}
+                      onChange={e => setNewFolderName(e.target.value)}
+                      aria-label="Yeni Klasör Adı"
+                      style={{ flex: 1 }}
+                    />
+                    <button onClick={handleCreateFolder} className="btn btn-success" aria-label="Klasör Oluştur">
+                      <PlusCircle size={18} /> Oluştur
+                    </button>
+                  </div>
+                  <select
+                    className="form-select"
+                    value={parentFolderForNew || ''}
+                    onChange={e => setParentFolderForNew(e.target.value ? parseInt(e.target.value, 10) : null)}
+                    style={{ fontSize: '0.85rem', fontFamily: 'monospace' }}
+                    aria-label="Ana Klasör Seçimi"
+                  >
+                    <option value="">📁 Ana Dizinde Oluştur (Kök)</option>
+                    {folders.map(f => (
+                      <option key={f.id} value={f.id}>
+                        └─ {f.displayName || f.name} altında
+                      </option>
+                    ))}
+                  </select>
                 </div>
               )}
 

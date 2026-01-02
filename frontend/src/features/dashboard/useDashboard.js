@@ -305,7 +305,7 @@ export const useDashboard = (token, currentView, onLogout, navigate) => {
         }
 
         try {
-            const res = await axios.post(`${config.API_BASE_URL}/folders/${repoId}`, { name: finalName, parent_id: selectedFolder || null });
+            const res = await axios.post(`${config.API_BASE_URL}/folders/${repoId}`, { name: finalName, parent_id: parentFolderForNew || null });
 
             const newFolderId = res.data.id || res.data.data?.id;
 
@@ -424,6 +424,7 @@ export const useDashboard = (token, currentView, onLogout, navigate) => {
         },
         setShowNewFolder, setSettingsData, setSettingsTab, setPasswordData,
         setPasswordErrors, setShowDuplicateModal, setShowAnalysisPanel,
+        parentFolderForNew, setParentFolderForNew,
 
         // İşlevler
         handleSync, handleCreateFolder, saveSettings, handleChangePassword,
