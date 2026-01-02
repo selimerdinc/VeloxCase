@@ -34,7 +34,7 @@ VeloxCase, Jira task'larınızı otomatik olarak Testmo test senaryolarına dön
 
 ```bash
 # Projeyi klonla
-git clone https://github.com/your-username/VeloxCase.git
+git clone https://github.com/selimerdinc/VeloxCase.git
 cd VeloxCase
 
 # Environment dosyalarını oluştur

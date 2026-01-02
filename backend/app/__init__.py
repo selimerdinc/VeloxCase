@@ -87,9 +87,10 @@ def create_app(config_class=Config):
     cors.init_app(app, resources={r"/api/*": {
         "origins": [
             "http://localhost:5173",
+            "http://localhost:3000",
             "https://velox-case-7kqcisaz4-selimerdincs-projects.vercel.app",
             "https://velox-case.vercel.app",
-            "*"
+            "https://veloxcase.selimerdinc.com"
         ]
     }})
     limiter.init_app(app)

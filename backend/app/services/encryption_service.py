@@ -29,5 +29,6 @@ class EncryptionService:
         if not value: return ""
         try:
             return cls.get_cipher().decrypt(value.encode()).decode()
-        except:
+        except Exception as e:
+            logger.warning(f"Decryption failed (key değişmiş olabilir): {str(e)[:50]}")
             return ""

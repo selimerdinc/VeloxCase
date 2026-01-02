@@ -48,7 +48,7 @@ class VeloxCaseSyncService:
         self.testmo_url = self._get_setting("TESTMO_BASE_URL").rstrip('/')
         if self.testmo_url and not self.testmo_url.startswith('http'):
             self.testmo_url = f"https://{self.testmo_url}"
-        if not self.testmo_url.endswith('/api/v1'):
+        if self.testmo_url and not self.testmo_url.endswith('/api/v1'):
             self.testmo_url += '/api/v1'
 
         self.headers = {
@@ -83,11 +83,12 @@ class VeloxCaseSyncService:
                 return {
                     'id': d.get('id'),
                     'summary': d.get('fields', {}).get('summary', ''),
+                    'description': d.get('fields', {}).get('description', ''),
                     'description_html': d.get('renderedFields', {}).get('description', '')
                 }
         except:
             pass
-        return {'id': None, 'summary': '', 'description_html': ''}
+        return {'id': None, 'summary': '', 'description': '', 'description_html': ''}
 
     def get_comments(self, key):
         try:
@@ -542,7 +543,8 @@ class VeloxCaseSyncService:
                     return result
 
             # AI TERCİHİ KONTROLÜ
-            ai_enabled = self._get_setting('AI_ENABLED').lower() == 'true'
+            ai_enabled = (self._get_setting('AI_ENABLED') or '').lower() == 'true'
+            jira_desc = info.get('description_html', '') or info.get('description', '') or ''
             steps = []
 
             # EĞER AI AKTİFSE GÖRSELLERİ DE TOPLAYALIM (VISION İÇİN)
@@ -566,14 +568,13 @@ class VeloxCaseSyncService:
                 
                 # Vision için görselleri base64'e çevir
                 ai_images = []
-                vision_enabled = self._get_setting('AI_VISION_ENABLED').lower() == 'true'
+                vision_enabled = (self._get_setting('AI_VISION_ENABLED') or '').lower() == 'true'
                 if vision_enabled and downloaded_images:
                     for img_content, _ in downloaded_images:
                         b64 = self.image_to_base64(img_content)
                         if b64: ai_images.append(b64)
 
-                # AI için veri topla
-                jira_desc = info.get('description', '')
+                # AI için veri topla (jira_desc zaten yukarıda tanımlı)
                 jira_comments = []
                 for c in self.get_comments(key):
                     jira_comments.append(c.get('body', ''))

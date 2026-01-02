@@ -364,7 +364,7 @@ export const useDashboard = (token, currentView, onLogout, navigate) => {
             setPasswordData({ old: '', new: '', confirm: '' });
         } catch (err) {
             const msg = err.response?.data?.msg || "Şifre değiştirilemedi.";
-            if (msg.includes('old password is incorrect')) {
+            if (msg.includes('Mevcut şifre hatalı') || msg.includes('old password')) {
                 setPasswordErrors(e => ({ ...e, old: true }));
                 toast.error("Mevcut şifreniz hatalı. Lütfen doğru şifrenizi giriniz.");
             } else {

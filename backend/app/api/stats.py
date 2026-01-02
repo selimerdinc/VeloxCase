@@ -33,12 +33,14 @@ def get_stats():
               type: integer
     """
     user = User.query.filter_by(username=get_jwt_identity()).first()
+    if not user:
+        return jsonify({"error": "Kullanıcı bulunamadı"}), 404
     logs = History.query.filter_by(user_id=user.id).all()
     today = datetime.now().strftime("%Y-%m-%d")
     return jsonify({
         "total_cases": sum(l.cases_count for l in logs),
         "total_images": sum(l.images_count for l in logs),
-        "today_syncs": sum(1 for l in logs if l.date.startswith(today)),
+        "today_syncs": sum(1 for l in logs if l.date and l.date.startswith(today)),
         "total_syncs": len(logs)
     })
 
@@ -73,5 +75,7 @@ def get_history():
                 type: string
     """
     user = User.query.filter_by(username=get_jwt_identity()).first()
+    if not user:
+        return jsonify({"error": "Kullanıcı bulunamadı"}), 404
     logs = History.query.filter_by(user_id=user.id).order_by(History.id.desc()).limit(50).all()
     return jsonify([{"id": l.id, "date": l.date, "task": l.task, "case": l.case_name, "status": l.status} for l in logs])

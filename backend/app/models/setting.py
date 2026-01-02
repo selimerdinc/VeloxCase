@@ -3,6 +3,9 @@ from app.extensions import db
 
 class Setting(db.Model):
     __tablename__ = 'settings'
+    __table_args__ = (
+        db.Index('ix_settings_user_key', 'user_id', 'key'),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)

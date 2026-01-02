@@ -1,6 +1,7 @@
 # app/api/sync.py
 
 import re
+import logging
 from datetime import datetime
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
@@ -9,6 +10,8 @@ from app.extensions import db
 from app.models.user import User
 from app.models.history import History
 from app.services.sync_service import VeloxCaseSyncService
+
+logger = logging.getLogger(__name__)
 
 sync_bp = Blueprint('sync', __name__, url_prefix='/api')
 
@@ -35,6 +38,8 @@ def get_folders(id):
         description: Klasör listesi
     """
     user = User.query.filter_by(username=get_jwt_identity()).first()
+    if not user:
+        return jsonify({'error': 'Kullanıcı bulunamadı'}), 404
     return jsonify({'folders': VeloxCaseSyncService(user.id).get_folders(id)})
 
 
@@ -72,6 +77,8 @@ def create_folder(id):
     """
     try:
         user = User.query.filter_by(username=get_jwt_identity()).first()
+        if not user:
+            return jsonify({'error': 'Kullanıcı bulunamadı'}), 404
         return jsonify(VeloxCaseSyncService(user.id).create_folder(id, request.json.get('name', 'Yeni'),
                                                                    request.json.get('parent_id')))
     except Exception as e:
@@ -109,6 +116,8 @@ def preview_task():
     try:
         d = request.json
         user = User.query.filter_by(username=get_jwt_identity()).first()
+        if not user:
+            return jsonify({'error': 'Kullanıcı bulunamadı'}), 404
         qc = VeloxCaseSyncService(user.id)
 
         key = d.get('task_key', '').strip()
@@ -154,6 +163,8 @@ def analyze_task():
     try:
         d = request.json
         user = User.query.filter_by(username=get_jwt_identity()).first()
+        if not user:
+            return jsonify({'error': 'Kullanıcı bulunamadı'}), 404
         qc = VeloxCaseSyncService(user.id)
 
         key = d.get('task_key', '').strip()
@@ -180,7 +191,10 @@ def analyze_task():
             custom_prompt = custom_prompt_setting.value if custom_prompt_setting else None
             
             jira_desc = info.get('description', '') or ''
-            jira_comments = info.get('comments', '') or ''
+            # Yorumları ayrıca çek
+            jira_comments = ''
+            for c in qc.get_comments(key):
+                jira_comments += c.get('body', '') + '\n'
             
             ai_result = ai_service.generate_test_cases(
                 info['summary'], 
@@ -207,8 +221,7 @@ def analyze_task():
                 'summary': info['summary'],
                 'ai_enabled': True,
                 'test_cases': ai_cases,
-                'automation_candidates': candidates,
-                'attachments': info.get('attachments', [])
+                'automation_candidates': candidates
             })
         else:
             # AI kapalı - regex bazlı basit analiz
@@ -221,8 +234,7 @@ def analyze_task():
                     'scenario': info.get('description', 'Senaryo bilgisi mevcut değil'),
                     'expected_result': 'Beklenen sonuç manuel olarak girilmelidir',
                     'status': 'NO RUN'
-                }],
-                'attachments': info.get('attachments', [])
+                }]
             })
 
     except Exception as e:
@@ -275,6 +287,8 @@ def sync():
     """
     d = request.json
     user = User.query.filter_by(username=get_jwt_identity()).first()
+    if not user:
+        return jsonify({'error': 'Kullanıcı bulunamadı'}), 404
     qc = VeloxCaseSyncService(user.id)
 
     task_keys = [k.strip() for k in d.get('jira_input', '').split(',') if k.strip()]

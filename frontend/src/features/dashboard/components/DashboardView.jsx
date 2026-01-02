@@ -77,12 +77,20 @@ function DashboardView(props) {
             <div className="form-group">
               <label className="form-label">Testmo Proje Kimliği</label>
               <input
-                type="number"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
                 className="form-input"
                 value={repoId}
-                onChange={e => setRepoId(e.target.value)}
+                onChange={e => {
+                  const val = e.target.value.replace(/[^0-9]/g, '');
+                  if (val === '' || parseInt(val, 10) > 0) {
+                    setRepoId(val);
+                  }
+                }}
                 placeholder="Proje ID Numarasını Girin"
                 aria-label="Testmo Proje ID"
+                style={{ MozAppearance: 'textfield' }}
               />
               <p className="helper-text">Testmo'daki projenizin benzersiz kimlik numarası.</p>
             </div>

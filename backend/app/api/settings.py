@@ -38,6 +38,8 @@ def get_settings():
               description: Güvenlik nedeniyle maskeli gelir
     """
     current_user = User.query.filter_by(username=get_jwt_identity()).first()
+    if not current_user:
+        return jsonify({"error": "Kullanıcı bulunamadı"}), 404
     user_settings = Setting.query.filter_by(user_id=current_user.id).all()
     
     # Sadece hassas verileri deşifre et, diğerlerini olduğu gibi al
@@ -103,6 +105,8 @@ def update_settings():
         description: Kayıt başarılı
     """
     current_user = User.query.filter_by(username=get_jwt_identity()).first()
+    if not current_user:
+        return jsonify({"error": "Kullanıcı bulunamadı"}), 404
     data = request.json
     for key, value in data.items():
         if value and value != "********":

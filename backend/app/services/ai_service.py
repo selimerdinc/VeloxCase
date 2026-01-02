@@ -31,7 +31,7 @@ class AIService:
         api_key = self._get_api_key()
         if not api_key:
             logger.error("AI_API_KEY not found for user")
-            return []
+            return {'test_cases': [], 'automation_candidates': []}
 
         def get_bool_setting(key):
             val = self._get_setting(key)
