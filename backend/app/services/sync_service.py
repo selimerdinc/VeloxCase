@@ -241,19 +241,42 @@ class VeloxCaseSyncService:
             return None
 
     def get_folders(self, pid):
+        """Tüm klasörleri çek - pagination ile 500 tanesine kadar destekler"""
         try:
-            url = f"{self.testmo_url}/projects/{pid}/folders"
-            logger.info(f"Fetching folders from: {url}")
-            r = self.session.get(url, headers={'Content-Type': 'application/json'})
+            all_folders = []
+            page = 1
+            per_page = 500  # Testmo API maksimum
             
-            if r.status_code != 200:
-                logger.error(f"Get Folders Error: {r.status_code} - {r.text}")
-                return []
+            while True:
+                url = f"{self.testmo_url}/projects/{pid}/folders?page={page}&per_page={per_page}"
+                logger.info(f"Fetching folders from: {url}")
+                r = self.session.get(url, headers={'Content-Type': 'application/json'})
                 
-            d = r.json()
-            folders = d.get('folders', d.get('result', []))
-            logger.info(f"Found {len(folders)} folders for project {pid}")
-            return folders
+                if r.status_code != 200:
+                    logger.error(f"Get Folders Error: {r.status_code} - {r.text}")
+                    break
+                    
+                d = r.json()
+                folders = d.get('folders', d.get('result', []))
+                
+                if not folders:
+                    break
+                    
+                all_folders.extend(folders)
+                logger.info(f"Page {page}: Found {len(folders)} folders (total: {len(all_folders)})")
+                
+                # Eğer dönen sayfa dolu değilse, daha fazla sayfa yok
+                if len(folders) < per_page:
+                    break
+                    
+                page += 1
+                
+                # Güvenlik: maksimum 10 sayfa (5000 klasör)
+                if page > 10:
+                    break
+            
+            logger.info(f"Total folders fetched for project {pid}: {len(all_folders)}")
+            return all_folders
         except Exception as e:
             logger.error(f"Get Folders Exception: {e}")
             return []
