@@ -256,13 +256,18 @@ class VeloxCaseSyncService:
         try:
             r = self.session.post(f"{self.testmo_url}/projects/{pid}/folders", json={"folders": [pl]},
                                   headers={'Content-Type': 'application/json'})
+            
+            if r.status_code not in [200, 201]:
+                logger.error(f"Create Folder API Error: {r.status_code} - {r.text}")
+                return {'error': f"Testmo API Error: {r.status_code}"}
+            
             d = r.json()
             if 'folders' in d and len(d['folders']) > 0:
                 return d['folders'][0]
             return d.get('data', d)
         except Exception as e:
             logger.error(f"Create Folder Error: {e}")
-            return {}
+            return {'error': str(e)}
 
     def upload_attachment_to_case(self, case_id, file_content, filename="screenshot.jpg", project_id=None):
         try:
