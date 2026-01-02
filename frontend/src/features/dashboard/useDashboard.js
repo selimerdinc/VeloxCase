@@ -60,10 +60,17 @@ export const useDashboard = (token, currentView, onLogout, navigate) => {
             const res = await axios.get(`${config.API_BASE_URL}/folders/${repoId}`);
             let list = res.data.folders || [];
 
-            // Tree yapısı oluştur
+            // Tree yapısı oluştur - parent_id: null, undefined, 0 hepsini root olarak say
             const buildTree = (items, parentId = null, level = 0) => {
+                const isRoot = (pid) => pid === null || pid === undefined || pid === 0;
+
                 return items
-                    .filter(item => item.parent_id === parentId)
+                    .filter(item => {
+                        if (parentId === null) {
+                            return isRoot(item.parent_id);
+                        }
+                        return item.parent_id === parentId;
+                    })
                     .sort((a, b) => a.name.localeCompare(b.name, 'tr', { sensitivity: 'base' }))
                     .flatMap(item => [
                         { ...item, level, displayName: '  '.repeat(level) + (level > 0 ? '└─ ' : '') + item.name },
@@ -71,9 +78,11 @@ export const useDashboard = (token, currentView, onLogout, navigate) => {
                     ]);
             };
 
-            // Eğer parent_id varsa tree yap, yoksa flat liste
-            const hasParentIds = list.some(f => f.parent_id !== undefined && f.parent_id !== null);
-            const processedList = hasParentIds ? buildTree(list) : list.sort((a, b) => a.name.localeCompare(b.name, 'tr', { sensitivity: 'base' }));
+            // Tree yap, eğer bazı klasörler kaybolursa flat listeye dön
+            const treeList = buildTree(list);
+            const processedList = treeList.length >= list.length
+                ? treeList
+                : list.sort((a, b) => a.name.localeCompare(b.name, 'tr', { sensitivity: 'base' }));
 
             setFolders(processedList);
 
