@@ -236,8 +236,8 @@ export const useDashboard = (token, currentView, onLogout, navigate) => {
             // force_update: true parametresi ile tekrar istek atıyoruz
             const res = await axios.post(`${config.API_BASE_URL}/sync`, {
                 jira_input: duplicateItem.task,
-                folder_id: selectedFolder,
-                project_id: repoId,
+                folder_id: parseInt(selectedFolder, 10),
+                project_id: parseInt(repoId, 10),
                 force_update: true // <--- Backend bu bayrağı görünce güncelleyecek
             });
 
