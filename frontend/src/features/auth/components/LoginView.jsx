@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Toaster } from 'react-hot-toast';
-import { Eye, EyeOff, Loader2, UserPlus, Lock, Sun, Moon } from 'lucide-react';
+import { Eye, EyeOff, Loader2, UserPlus, Lock, Sun, Moon, Ticket } from 'lucide-react';
 // DİKKAT: useAuth importunu sildik, çünkü prop olarak alacağız.
 
 function LoginView(props) {
@@ -12,10 +12,10 @@ function LoginView(props) {
     theme,
     handleThemeToggle,
     // Auth Hook'undan gelenler:
-    isRegistering, username, password, showPassword,
+    isRegistering, username, password, inviteCode, showPassword,
     authLoading, errors, strengthScore,
     handleAuth, handleForgotPassword,
-    setUsername, setPassword, setIsRegistering, setShowPassword
+    setUsername, setPassword, setInviteCode, setIsRegistering, setShowPassword
   } = props;
 
   return (
@@ -95,6 +95,30 @@ function LoginView(props) {
               </div>
             )}
           </div>
+
+          {/* DAVET KODU - SADECE KAYIT MODUNDA */}
+          {isRegistering && (
+            <div className="form-group">
+              <label className="form-label" htmlFor="invite-code-input">
+                <Ticket size={14} style={{ marginRight: 6, verticalAlign: 'middle' }} />
+                Davet Kodu
+              </label>
+              <input
+                id="invite-code-input"
+                className={`form-input ${errors.inviteCode ? 'input-error' : ''}`}
+                value={inviteCode}
+                onChange={e => setInviteCode(e.target.value.toUpperCase())}
+                placeholder="VLX-XXXXXX"
+                aria-required="true"
+                aria-invalid={errors.inviteCode}
+                style={{ textTransform: 'uppercase', letterSpacing: '1px' }}
+              />
+              {errors.inviteCode && <p className="helper-text text-red" style={{ color: 'var(--error)' }} role="alert">Geçerli bir davet kodu gereklidir.</p>}
+              <p className="helper-text" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: 4 }}>
+                Yöneticinizden davet kodu talep edin
+              </p>
+            </div>
+          )}
 
           <button
             type="submit"

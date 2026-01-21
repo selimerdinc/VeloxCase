@@ -101,11 +101,13 @@ def create_app(config_class=Config):
     from app.api.settings import settings_bp
     from app.api.sync import sync_bp
     from app.api.stats import stats_bp
+    from app.api.admin import admin_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(settings_bp)
     app.register_blueprint(sync_bp)
     app.register_blueprint(stats_bp)
+    app.register_blueprint(admin_bp)
 
     init_db(app)
 

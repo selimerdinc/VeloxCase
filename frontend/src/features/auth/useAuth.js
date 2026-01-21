@@ -16,9 +16,10 @@ export const useAuth = () => {
     const [isRegistering, setIsRegistering] = useState(false);
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
+    const [inviteCode, setInviteCode] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [authLoading, setAuthLoading] = useState(false);
-    const [errors, setErrors] = useState({ username: false, password: false });
+    const [errors, setErrors] = useState({ username: false, password: false, inviteCode: false });
 
     // Login Hang Fix için anahtar
     const [authKey, setAuthKey] = useState(0);
@@ -61,11 +62,12 @@ export const useAuth = () => {
         // 1. Validasyon
         const newErrors = {
             username: !username.trim(),
-            password: !password.trim()
+            password: !password.trim(),
+            inviteCode: isRegistering && !inviteCode.trim()
         };
         setErrors(newErrors);
 
-        if (newErrors.username || newErrors.password) {
+        if (newErrors.username || newErrors.password || (isRegistering && newErrors.inviteCode)) {
             return toast.error("Zorunlu alanları eksiksiz doldurunuz.", {
                 style: { border: '1px solid #ef4444', color: '#7f1d1d' }
             });
@@ -77,9 +79,12 @@ export const useAuth = () => {
 
         setAuthLoading(true);
         const endpoint = isRegistering ? '/register' : '/login';
+        const payload = isRegistering
+            ? { username, password, invite_code: inviteCode.toUpperCase() }
+            : { username, password };
 
         try {
-            const res = await axios.post(`${config.API_BASE_URL}${endpoint}`, { username, password });
+            const res = await axios.post(`${config.API_BASE_URL}${endpoint}`, payload);
 
             if (isRegistering) {
                 // --- KAYIT BAŞARILI ---
@@ -89,10 +94,11 @@ export const useAuth = () => {
                 setIsRegistering(false);
 
                 // 2. Hataları temizle
-                setErrors({ username: false, password: false });
+                setErrors({ username: false, password: false, inviteCode: false });
 
-                // 3. Şifreyi temizle (Kullanıcı tekrar girmeli)
+                // 3. Şifreyi ve davet kodunu temizle (Kullanıcı tekrar girmeli)
                 setPassword('');
+                setInviteCode('');
 
                 // NOT: 'username' state'ini özellikle temizlemiyoruz (setUsername('') YOK).
                 // Böylece kullanıcı adı input alanında yazılı kalır.
@@ -137,7 +143,7 @@ export const useAuth = () => {
         } finally {
             setAuthLoading(false);
         }
-    }, [username, password, isRegistering]);
+    }, [username, password, inviteCode, isRegistering]);
 
     // --- İŞLEV: Oturumu Kapatma ---
     const handleLogout = useCallback(() => {
@@ -146,7 +152,8 @@ export const useAuth = () => {
         setAuthKey(prev => prev + 1);
         setUsername('');
         setPassword('');
-        setErrors({ username: false, password: false });
+        setInviteCode('');
+        setErrors({ username: false, password: false, inviteCode: false });
         toast('Oturum kapatıldı.', { icon: '🔒' });
     }, []);
 
@@ -163,6 +170,7 @@ export const useAuth = () => {
         isRegistering,
         username,
         password,
+        inviteCode,
         showPassword,
         authLoading,
         errors,
@@ -170,6 +178,7 @@ export const useAuth = () => {
 
         setUsername: (value) => { setUsername(value); if (errors.username) setErrors(e => ({ ...e, username: false })); },
         setPassword: (value) => { setPassword(value); if (errors.password) setErrors(e => ({ ...e, password: false })); },
+        setInviteCode: (value) => { setInviteCode(value); if (errors.inviteCode) setErrors(e => ({ ...e, inviteCode: false })); },
         setIsRegistering,
         setShowPassword,
         handleAuth,

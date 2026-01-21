@@ -1,17 +1,31 @@
+import re
 from flask import Blueprint, request, jsonify
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
 from app.extensions import db, limiter
 from app.models.user import User
+from app.models.invite_code import InviteCode
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api')
+
+
+def validate_username(username):
+    """Username validation - güvenlik için"""
+    if not username or len(username) < 3:
+        return "Kullanıcı adı en az 3 karakter olmalıdır"
+    if len(username) > 30:
+        return "Kullanıcı adı en fazla 30 karakter olabilir"
+    if not re.match(r'^[a-zA-Z0-9_]+$', username):
+        return "Kullanıcı adı sadece harf, rakam ve alt çizgi içerebilir"
+    return None
+
 
 @auth_bp.route('/register', methods=['POST'])
 @limiter.limit("10 per minute")
 def register():
     """
     Yeni Kullanıcı Kaydı
-    Sisteme yeni bir kullanıcı ekler.
+    Sisteme yeni bir kullanıcı ekler. Geçerli davet kodu gerektirir.
     ---
     tags:
       - Authentication
@@ -24,31 +38,73 @@ def register():
           required:
             - username
             - password
+            - invite_code
           properties:
             username:
               type: string
-              example: "admin"
+              example: "newuser"
             password:
               type: string
               example: "secret123"
+            invite_code:
+              type: string
+              example: "VLX-ABC123"
     responses:
       201:
         description: Kullanıcı başarıyla oluşturuldu
       400:
-        description: Eksik bilgi veya kullanıcı adı dolu
+        description: Eksik bilgi, geçersiz davet kodu veya kullanıcı adı dolu
     """
     try:
         data = request.json or {}
-        u, p = data.get("username"), data.get("password")
-        if not u or not p: return jsonify({"msg": "Kullanıcı adı ve şifre zorunludur"}), 400
-        if len(p) < 8: return jsonify({"msg": "Şifre en az 8 karakter olmalıdır"}), 400
-        if User.query.filter_by(username=u).first(): return jsonify({"msg": "Bu kullanıcı adı zaten kullanımda"}), 400
+        username = data.get("username", "").strip()
+        password = data.get("password", "")
+        invite_code_str = data.get("invite_code", "").strip().upper()
 
-        db.session.add(User(username=u, password_hash=generate_password_hash(p, method='pbkdf2:sha256')))
+        # Temel validasyonlar
+        if not username or not password:
+            return jsonify({"msg": "Kullanıcı adı ve şifre zorunludur"}), 400
+        
+        # Username validation
+        username_error = validate_username(username)
+        if username_error:
+            return jsonify({"msg": username_error}), 400
+
+        if len(password) < 8:
+            return jsonify({"msg": "Şifre en az 8 karakter olmalıdır"}), 400
+
+        # Davet kodu kontrolü
+        if not invite_code_str:
+            return jsonify({"msg": "Davet kodu zorunludur"}), 400
+
+        invite = InviteCode.query.filter_by(code=invite_code_str).first()
+        if not invite:
+            return jsonify({"msg": "Geçersiz davet kodu"}), 400
+        
+        if not invite.is_valid():
+            return jsonify({"msg": "Davet kodu geçersiz veya süresi dolmuş"}), 400
+
+        # Kullanıcı adı kontrolü
+        if User.query.filter_by(username=username).first():
+            return jsonify({"msg": "Bu kullanıcı adı zaten kullanımda"}), 400
+
+        # Kullanıcı oluştur
+        new_user = User(
+            username=username,
+            password_hash=generate_password_hash(password, method='pbkdf2:sha256')
+        )
+        db.session.add(new_user)
+        
+        # Davet kodunu kullandı olarak işaretle
+        invite.use()
+        
         db.session.commit()
         return jsonify({"msg": "Kullanıcı başarıyla oluşturuldu"}), 201
     except Exception as e:
-        return jsonify({"msg": f"Sunucu hatası: {str(e)}"}), 500
+        import logging
+        logging.getLogger(__name__).error(f"Register error: {e}")
+        return jsonify({"msg": "Kayıt sırasında bir hata oluştu"}), 500
+
 
 @auth_bp.route('/login', methods=['POST'])
 @limiter.limit("20 per minute")
@@ -155,4 +211,6 @@ def change_password():
         db.session.commit()
         return jsonify({"msg": "Şifreniz başarıyla güncellendi"}), 200
     except Exception as e:
-        return jsonify({"msg": f"Sunucu hatası: {str(e)}"}), 500
+        import logging
+        logging.getLogger(__name__).error(f"Change password error: {e}")
+        return jsonify({"msg": "Şifre değiştirme sırasında bir hata oluştu"}), 500

@@ -1,0 +1,232 @@
+# app/api/admin.py
+"""
+Admin API endpoints - Davet kodu yönetimi
+Sadece is_admin=True olan kullanıcılar erişebilir
+"""
+import secrets
+import re
+from datetime import datetime, timedelta
+from flask import Blueprint, request, jsonify
+from flask_jwt_extended import jwt_required, get_jwt_identity
+from app.extensions import db, limiter
+from app.models.user import User
+from app.models.invite_code import InviteCode
+
+admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
+
+
+def require_admin():
+    """Admin yetkisi kontrolü - decorator olarak kullanılabilir"""
+    user = User.query.filter_by(username=get_jwt_identity()).first()
+    if not user or not user.is_admin:
+        return None
+    return user
+
+
+def generate_invite_code():
+    """Benzersiz davet kodu üret: VLX-XXXXXX"""
+    while True:
+        code = f"VLX-{secrets.token_hex(3).upper()}"
+        if not InviteCode.query.filter_by(code=code).first():
+            return code
+
+
+@admin_bp.route('/invite-codes', methods=['GET'])
+@jwt_required()
+def list_invite_codes():
+    """
+    Tüm davet kodlarını listele
+    ---
+    tags:
+      - Admin
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: Davet kodları listesi
+      403:
+        description: Admin yetkisi gerekli
+    """
+    admin = require_admin()
+    if not admin:
+        return jsonify({"msg": "Bu işlem için admin yetkisi gereklidir"}), 403
+
+    codes = InviteCode.query.order_by(InviteCode.created_at.desc()).all()
+    return jsonify({
+        "invite_codes": [code.to_dict() for code in codes]
+    })
+
+
+@admin_bp.route('/invite-codes', methods=['POST'])
+@jwt_required()
+@limiter.limit("20 per hour")
+def create_invite_code():
+    """
+    Yeni davet kodu oluştur
+    ---
+    tags:
+      - Admin
+    security:
+      - Bearer: []
+    parameters:
+      - name: body
+        in: body
+        schema:
+          type: object
+          properties:
+            max_uses:
+              type: integer
+              default: 1
+              description: Maksimum kullanım sayısı
+            expires_in_days:
+              type: integer
+              default: 7
+              description: Kaç gün geçerli (0 = sınırsız)
+    responses:
+      201:
+        description: Davet kodu oluşturuldu
+      403:
+        description: Admin yetkisi gerekli
+    """
+    admin = require_admin()
+    if not admin:
+        return jsonify({"msg": "Bu işlem için admin yetkisi gereklidir"}), 403
+
+    data = request.json or {}
+    max_uses = data.get('max_uses', 1)
+    expires_in_days = data.get('expires_in_days', 7)
+
+    # Validasyon
+    if max_uses < 1 or max_uses > 100:
+        return jsonify({"msg": "Kullanım limiti 1-100 arasında olmalıdır"}), 400
+
+    # Expire tarihi hesapla
+    expires_at = None
+    if expires_in_days > 0:
+        expires_at = datetime.utcnow() + timedelta(days=expires_in_days)
+
+    # Kod oluştur
+    invite = InviteCode(
+        code=generate_invite_code(),
+        created_by=admin.id,
+        max_uses=max_uses,
+        expires_at=expires_at
+    )
+    db.session.add(invite)
+    db.session.commit()
+
+    return jsonify({
+        "msg": "Davet kodu oluşturuldu",
+        "invite_code": invite.to_dict()
+    }), 201
+
+
+@admin_bp.route('/invite-codes/<int:code_id>', methods=['DELETE'])
+@jwt_required()
+def revoke_invite_code(code_id):
+    """
+    Davet kodunu iptal et
+    ---
+    tags:
+      - Admin
+    security:
+      - Bearer: []
+    parameters:
+      - name: code_id
+        in: path
+        type: integer
+        required: true
+    responses:
+      200:
+        description: Kod iptal edildi
+      403:
+        description: Admin yetkisi gerekli
+      404:
+        description: Kod bulunamadı
+    """
+    admin = require_admin()
+    if not admin:
+        return jsonify({"msg": "Bu işlem için admin yetkisi gereklidir"}), 403
+
+    invite = InviteCode.query.get(code_id)
+    if not invite:
+        return jsonify({"msg": "Davet kodu bulunamadı"}), 404
+
+    invite.is_active = False
+    db.session.commit()
+
+    return jsonify({"msg": "Davet kodu iptal edildi"})
+
+
+@admin_bp.route('/users', methods=['GET'])
+@jwt_required()
+def list_users():
+    """
+    Tüm kullanıcıları listele (Admin only)
+    ---
+    tags:
+      - Admin
+    security:
+      - Bearer: []
+    responses:
+      200:
+        description: Kullanıcı listesi
+      403:
+        description: Admin yetkisi gerekli
+    """
+    admin = require_admin()
+    if not admin:
+        return jsonify({"msg": "Bu işlem için admin yetkisi gereklidir"}), 403
+
+    users = User.query.all()
+    return jsonify({
+        "users": [{
+            "id": u.id,
+            "username": u.username,
+            "is_admin": u.is_admin
+        } for u in users]
+    })
+
+
+@admin_bp.route('/users/<int:user_id>/toggle-admin', methods=['POST'])
+@jwt_required()
+def toggle_admin(user_id):
+    """
+    Kullanıcının admin yetkisini değiştir
+    ---
+    tags:
+      - Admin
+    security:
+      - Bearer: []
+    parameters:
+      - name: user_id
+        in: path
+        type: integer
+        required: true
+    responses:
+      200:
+        description: Yetki güncellendi
+      403:
+        description: Admin yetkisi gerekli
+      404:
+        description: Kullanıcı bulunamadı
+    """
+    admin = require_admin()
+    if not admin:
+        return jsonify({"msg": "Bu işlem için admin yetkisi gereklidir"}), 403
+
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"msg": "Kullanıcı bulunamadı"}), 404
+
+    # Kendini admin'den düşüremez
+    if user.id == admin.id:
+        return jsonify({"msg": "Kendinizin admin yetkisini kaldıramazsınız"}), 400
+
+    user.is_admin = not user.is_admin
+    db.session.commit()
+
+    return jsonify({
+        "msg": f"'{user.username}' artık {'admin' if user.is_admin else 'normal kullanıcı'}",
+        "is_admin": user.is_admin
+    })

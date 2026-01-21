@@ -79,7 +79,8 @@ class VeloxCaseSyncService:
             img.save(buffer, format="JPEG", quality=70, optimize=True)
             b64_str = base64.b64encode(buffer.getvalue()).decode('utf-8')
             return f"data:image/jpeg;base64,{b64_str}"
-        except:
+        except Exception as e:
+            logger.debug(f"Image conversion failed: {e}")
             return None
 
     def get_issue(self, key):
@@ -94,15 +95,16 @@ class VeloxCaseSyncService:
                     'description': d.get('fields', {}).get('description', ''),
                     'description_html': d.get('renderedFields', {}).get('description', '')
                 }
-        except:
-            pass
+        except Exception as e:
+            logger.debug(f"Get issue failed for {key}: {e}")
         return {'id': None, 'summary': '', 'description': '', 'description_html': ''}
 
     def get_comments(self, key):
         try:
             return self.session.get(f"{self.jira_url}/rest/api/3/issue/{key}/comment", auth=self.jira_auth,
                                     params={'expand': 'renderedBody'}).json().get('comments', [])
-        except:
+        except Exception as e:
+            logger.debug(f"Get comments failed for {key}: {e}")
             return []
 
     def get_attachments(self, key):
@@ -128,8 +130,8 @@ class VeloxCaseSyncService:
                             "content": [{"type": "paragraph", "content": [{"text": msg, "type": "text"}]}]}}
         try:
             self.session.post(url, json=payload, auth=self.jira_auth, headers={'Content-Type': 'application/json'})
-        except:
-            pass
+        except Exception as e:
+            logger.debug(f"Add Jira comment failed: {e}")
 
     def delete_existing_remote_links(self, jira_key):
         """Jira taskındaki eski Testmo linklerini temizler (Duplicate önleme)"""
@@ -325,7 +327,8 @@ class VeloxCaseSyncService:
                 res_list = resp.get('result', [])
                 att_id = res_list[0].get('id', 'Unknown') if res_list else 'Unknown'
                 logger.info(f"Attachment Uploaded Successfully! ID: {att_id} -> Case: {case_id}")
-            except:
+            except Exception as e:
+                logger.debug(f"Response parsing failed: {e}")
                 logger.info(f"Attachment Uploaded Successfully! Case: {case_id}")
 
             return True
