@@ -47,10 +47,19 @@ export const useAuth = () => {
     // --- YAN ETKİLER ---
     useEffect(() => {
         const checkToken = async () => {
-            if (token) {
+            const storedToken = localStorage.getItem(config.TOKEN_KEY);
+            if (storedToken) {
                 try {
-                    // Token geçerli mi backend'e sor
-                    await axios.get(`${config.API_BASE_URL}/verify-token`);
+                    // Token geçerli mi backend'e sor (Manuel header ekleyerek race condition'ı önlüyoruz)
+                    const res = await axios.get(`${config.API_BASE_URL}/verify-token`, {
+                        headers: { Authorization: `Bearer ${storedToken}` }
+                    });
+
+                    // Admin yetkisini de doğrula/güncelle
+                    if (res.data.is_admin !== undefined) {
+                        setIsAdmin(res.data.is_admin);
+                        localStorage.setItem('veloxcase_is_admin', res.data.is_admin.toString());
+                    }
                 } catch (err) {
                     console.error("Session expired or invalid token:", err);
                     handleLogout(); // Geçersizse çıkış yap
@@ -60,7 +69,7 @@ export const useAuth = () => {
         };
 
         checkToken();
-    }, [token, handleLogout]);
+    }, []); // Sadece mount'ta (uygulama açılışında) çalışır
 
     useEffect(() => {
         if (token) {
