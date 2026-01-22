@@ -230,3 +230,60 @@ def toggle_admin(user_id):
         "msg": f"'{user.username}' artık {'admin' if user.is_admin else 'normal kullanıcı'}",
         "is_admin": user.is_admin
     })
+@admin_bp.route('/users/<int:user_id>', methods=['DELETE'])
+@jwt_required()
+def delete_user(user_id):
+    """
+    Kullanıcıyı ve tüm verilerini sil (Admin only)
+    ---
+    tags:
+      - Admin
+    security:
+      - Bearer: []
+    parameters:
+      - name: user_id
+        in: path
+        type: integer
+        required: true
+    responses:
+      200:
+        description: Kullanıcı silindi
+      400:
+        description: Kendi hesabınızı silemezsiniz
+      403:
+        description: Admin yetkisi gerekli
+      404:
+        description: Kullanıcı bulunamadı
+    """
+    admin = require_admin()
+    if not admin:
+        return jsonify({"msg": "Bu işlem için admin yetkisi gereklidir"}), 403
+
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"msg": "Kullanıcı bulunamadı"}), 404
+
+    # Kendini silemez
+    if user.id == admin.id:
+        return jsonify({"msg": "Kendi hesabınızı silemezsiniz. Başka bir adminin sizi silmesi gerekir."}), 400
+
+    username = user.username
+
+    try:
+        # 1. Ayarları sil
+        from app.models.setting import Setting
+        Setting.query.filter_by(user_id=user.id).delete()
+
+        # 2. Geçmişi sil
+        from app.models.history import History
+        History.query.filter_by(user_id=user.id).delete()
+
+        # 3. Kullanıcıyı sil
+        db.session.delete(user)
+        db.session.commit()
+
+        return jsonify({"msg": f"'{username}' kullanıcısı ve tüm verileri başarıyla silindi"})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error deleting user {user_id}: {str(e)}")
+        return jsonify({"msg": "Silme işlemi sırasında sunucu tarafında bir hata oluştu"}), 500

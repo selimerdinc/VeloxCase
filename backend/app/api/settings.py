@@ -67,7 +67,8 @@ def get_settings():
         "AI_VISION_ENABLED": cfg.get("AI_VISION_ENABLED", "false"),
         "AI_AUTOMATION_ENABLED": cfg.get("AI_AUTOMATION_ENABLED", "false"),
         "AI_NEGATIVE_ENABLED": cfg.get("AI_NEGATIVE_ENABLED", "false"),
-        "AI_MOCKDATA_ENABLED": cfg.get("AI_MOCKDATA_ENABLED", "false")
+        "AI_MOCKDATA_ENABLED": cfg.get("AI_MOCKDATA_ENABLED", "false"),
+        "TESTMO_PROJECT_ID": cfg.get("TESTMO_PROJECT_ID", "1")
     })
 
 

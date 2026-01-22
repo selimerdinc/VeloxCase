@@ -3,7 +3,7 @@
 import React, { useEffect } from 'react';
 
 import {
-  Zap, FolderPlus, ArrowRight, Image as ImageIcon, Loader2,
+  FolderPlus, Image as ImageIcon, Loader2,
   PlusCircle, List, XCircle, BarChart3, Calendar, Check, AlertTriangle,
   Brain, Send, Code, Database, Eye, X
 } from 'lucide-react';

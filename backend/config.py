@@ -20,6 +20,8 @@ class Config:
     JWT_SECRET_KEY = _jwt_key
     JWT_ACCESS_TOKEN_EXPIRES = timedelta(days=7)
     ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
+    if not ENCRYPTION_KEY:
+         logger.error("❌ ENCRYPTION_KEY set edilmemiş! Hassas veriler şifrelenemez/çözülemez.")
 
     # Veritabanı
     SQLALCHEMY_DATABASE_URI = os.getenv("DATABASE_URL", "sqlite:///veloxcase.db")

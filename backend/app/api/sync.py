@@ -82,7 +82,8 @@ def create_folder(id):
         return jsonify(VeloxCaseSyncService(user.id).create_folder(id, request.json.get('name', 'Yeni'),
                                                                    request.json.get('parent_id')))
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Create folder error: {e}")
+        return jsonify({'error': 'Klasör oluşturulurken bir hata oluştu'}), 500
 
 
 @sync_bp.route('/preview', methods=['POST'])
@@ -131,7 +132,8 @@ def preview_task():
         else:
             return jsonify({'found': False}), 404
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"Preview task error: {e}")
+        return jsonify({'error': 'Task bilgileri alınırken bir hata oluştu'}), 500
 
 
 @sync_bp.route('/analyze', methods=['POST'])
@@ -239,7 +241,7 @@ def analyze_task():
 
     except Exception as e:
         logger.error(f"Analyze error: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': 'Analiz sırasında bir hata oluştu'}), 500
 
 
 @sync_bp.route('/sync', methods=['POST'])
@@ -333,7 +335,8 @@ def sync():
                     user_id=user.id
                 ))
         except Exception as e:
-            results.append({'task': task_key, 'status': 'error', 'msg': str(e)})
+            logger.error(f"Process single task error ({task_key}): {e}")
+            results.append({'task': task_key, 'status': 'error', 'msg': 'İşlem sırasında hata oluştu'})
     
     db.session.commit()
 

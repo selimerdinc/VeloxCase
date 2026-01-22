@@ -23,6 +23,7 @@ class InviteCode(db.Model):
     
     # İlişkiler
     creator = db.relationship('User', backref=db.backref('created_invites', lazy='dynamic'))
+    usages = db.relationship('InviteUsage', backref='invite_code', lazy='dynamic')
 
     def is_valid(self):
         """Kodun hala geçerli olup olmadığını kontrol et"""
@@ -34,9 +35,11 @@ class InviteCode(db.Model):
             return False
         return True
 
-    def use(self):
-        """Kodu kullan (sayacı artır)"""
+    def use(self, user_id):
+        """Kodu kullan (sayacı artır ve kullanımı kaydet)"""
         self.current_uses += 1
+        usage = InviteUsage(invite_code_id=self.id, user_id=user_id)
+        db.session.add(usage)
 
     def to_dict(self):
         return {
@@ -48,8 +51,28 @@ class InviteCode(db.Model):
             'max_uses': self.max_uses,
             'current_uses': self.current_uses,
             'is_active': self.is_active,
-            'is_valid': self.is_valid()
+            'is_valid': self.is_valid(),
+            'used_by': [usage.to_dict() for usage in self.usages.all()]
         }
 
     def __repr__(self):
         return f"<InviteCode {self.code}>"
+
+
+class InviteUsage(db.Model):
+    """Davet kodu kullanım kaydı"""
+    __tablename__ = 'invite_usages'
+
+    id = db.Column(db.Integer, primary_key=True)
+    invite_code_id = db.Column(db.Integer, db.ForeignKey('invite_codes.id'), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    used_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # İlişki
+    user = db.relationship('User', backref=db.backref('invite_usage', uselist=False))
+
+    def to_dict(self):
+        return {
+            'username': self.user.username if self.user else 'Unknown',
+            'used_at': self.used_at.isoformat() if self.used_at else None
+        }

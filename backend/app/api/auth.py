@@ -94,9 +94,10 @@ def register():
             password_hash=generate_password_hash(password, method='pbkdf2:sha256')
         )
         db.session.add(new_user)
+        db.session.flush()  # ID alabilmek için flush et
         
-        # Davet kodunu kullandı olarak işaretle
-        invite.use()
+        # Davet kodunu kullandı olarak işaretle (Kullanıcı ID ile)
+        invite.use(new_user.id)
         
         db.session.commit()
         return jsonify({"msg": "Kullanıcı başarıyla oluşturuldu"}), 201
@@ -152,7 +153,10 @@ def login():
         
         user = User.query.filter_by(username=username).first()
         if user and check_password_hash(user.password_hash, password):
-            return jsonify(access_token=create_access_token(identity=user.username)), 200
+            return jsonify(
+                access_token=create_access_token(identity=user.username),
+                is_admin=user.is_admin
+            ), 200
         
         # Güvenlik: Kullanıcı var/yok ayırt edilmemeli
         return jsonify({"msg": "Geçersiz kullanıcı adı veya şifre"}), 401

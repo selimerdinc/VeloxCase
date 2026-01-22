@@ -36,6 +36,43 @@ class VeloxCaseSyncService:
         return ""
 
 
+    def is_safe_url(self, url):
+        """SSRF Koruması: Sadece dış ağ (public) URL'lerine izin ver"""
+        if not url: return False
+        from urllib.parse import urlparse
+        import socket
+        
+        parsed = urlparse(url)
+        if parsed.scheme not in ('http', 'https'):
+            return False
+        
+        hostname = parsed.hostname
+        if not hostname: return False
+        
+        try:
+            # Hostname'i IP'ye çöz
+            ip = socket.gethostbyname(hostname)
+            
+            # Özel IP aralıklarını (private/loopback) engelle
+            # 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16
+            private_ranges = [
+                re.compile(r'^127\.'),
+                re.compile(r'^10\.'),
+                re.compile(r'^172\.(1[6-9]|2[0-9]|3[0-1])\.'),
+                re.compile(r'^192\.168\.'),
+                re.compile(r'^169\.254\.')
+            ]
+            
+            for r in private_ranges:
+                if r.match(ip):
+                    logger.warning(f"⚠️ SSRF Alerjisi: Özel IP engellendi: {ip} ({hostname})")
+                    return False
+            
+            return True
+        except Exception as e:
+            logger.debug(f"URL validation error for {hostname}: {e}")
+            return False
+
     def _setup_config(self):
         testmo_key = self._get_setting("TESTMO_API_KEY")
         jira_email = self._get_setting("JIRA_EMAIL")
@@ -49,15 +86,29 @@ class VeloxCaseSyncService:
         if not jira_email:
             logger.warning(f"⚠️ User {self.user_id}: JIRA_EMAIL boş!")
 
-        self.jira_url = self._get_setting("JIRA_BASE_URL").rstrip('/')
-        if self.jira_url and not self.jira_url.startswith('http'):
-            self.jira_url = f"https://{self.jira_url}"
+        jira_base = self._get_setting("JIRA_BASE_URL").rstrip('/')
+        if jira_base and not jira_base.startswith('http'):
+            jira_base = f"https://{jira_base}"
+        
+        # Validasyon
+        if jira_base and not self.is_safe_url(jira_base):
+            logger.error(f"⚠️ Geçersiz veya tehlikeli JIRA_BASE_URL: {jira_base}")
+            self.jira_url = ""
+        else:
+            self.jira_url = jira_base
 
-        self.testmo_url = self._get_setting("TESTMO_BASE_URL").rstrip('/')
-        if self.testmo_url and not self.testmo_url.startswith('http'):
-            self.testmo_url = f"https://{self.testmo_url}"
-        if self.testmo_url and not self.testmo_url.endswith('/api/v1'):
-            self.testmo_url += '/api/v1'
+        testmo_base = self._get_setting("TESTMO_BASE_URL").rstrip('/')
+        if testmo_base and not testmo_base.startswith('http'):
+            testmo_base = f"https://{testmo_base}"
+            
+        # Validasyon
+        if testmo_base and not self.is_safe_url(testmo_base):
+            logger.error(f"⚠️ Geçersiz veya tehlikeli TESTMO_BASE_URL: {testmo_base}")
+            self.testmo_url = ""
+        else:
+            self.testmo_url = testmo_base
+            if self.testmo_url and not self.testmo_url.endswith('/api/v1'):
+                self.testmo_url += '/api/v1'
 
         self.headers = {
             'Authorization': f'Bearer {testmo_key}',
@@ -234,7 +285,21 @@ class VeloxCaseSyncService:
             if r.status_code == 200:
                 if 'text/html' in r.headers.get('Content-Type', '').lower():
                     return None
-                return r.content
+                
+                # Boyut Kontrolü (Maks 10MB)
+                content_length = r.headers.get('Content-Length')
+                if content_length and int(content_length) > 10 * 1024 * 1024:
+                    logger.warning(f"⚠️ Resim çok büyük ({content_length} bytes), indirme iptal edildi: {u}")
+                    return None
+                
+                # Chunked download ile gerçek boyutu da kontrol et (Content-Length olmayan durumlar için)
+                content = b""
+                for chunk in r.iter_content(chunk_size=8192):
+                    content += chunk
+                    if len(content) > 10 * 1024 * 1024:
+                        logger.warning(f"⚠️ Resim indirme sırasında limit aşıldı (>10MB): {u}")
+                        return None
+                return content
             else:
                 logger.warning(f"Image Download Failed: {r.status_code} for {u}")
                 return None
@@ -247,10 +312,10 @@ class VeloxCaseSyncService:
         try:
             all_folders = []
             page = 1
-            per_page = 500  # Testmo API maksimum
+            per_page = 100  # Testmo API maksimum
             
             while True:
-                url = f"{self.testmo_url}/projects/{pid}/folders?page={page}&per_page={per_page}"
+                url = f"{self.testmo_url}/projects/{pid}/folders?page={page}&per_page=100"
                 logger.info(f"Fetching folders from: {url}")
                 r = self.session.get(url, headers={'Content-Type': 'application/json'})
                 
@@ -495,7 +560,7 @@ class VeloxCaseSyncService:
         #     pl["issues"] = [int(jira_id)]
 
 
-        r = self.session.post(f"{self.testmo_url}/projects/{pid}/cases", json={"cases": [pl]},
+        r = self.session.post(f"{self.testmo_url}/repositories/{pid}/cases", json={"cases": [pl]},
                               headers={'Content-Type': 'application/json'})
 
         if r.status_code in [200, 201]:

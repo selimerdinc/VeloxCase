@@ -31,7 +31,7 @@ function App() {
 
   // Auth Logic
   const authLogic = useAuth();
-  const { token, handleLogout, authKey, isInitialized } = authLogic;
+  const { token, handleLogout, authKey, isInitialized, isAdmin } = authLogic;
 
   // Dashboard Logic (view yerine location.pathname kullanıyoruz)
   // pathname: '/' ise 'dashboard', '/settings' ise 'settings' gibi mapliyoruz.
@@ -91,9 +91,11 @@ function App() {
             <button onClick={() => navigate('/settings')} className={`btn btn-text ${location.pathname === '/settings' ? 'text-primary' : ''}`} title="Ayarlar">
               <Settings size={18} /> Ayarlar
             </button>
-            <button onClick={() => navigate('/admin')} className={`btn btn-text ${location.pathname === '/admin' ? 'text-primary' : ''}`} title="Admin Paneli">
-              <Shield size={18} />
-            </button>
+            {isAdmin && (
+              <button onClick={() => navigate('/admin')} className={`btn btn-text ${location.pathname === '/admin' ? 'text-primary' : ''}`} title="Admin Paneli">
+                <Shield size={18} /> Admin Panel
+              </button>
+            )}
 
             <div style={{ width: 1, height: 20, background: 'var(--border)', margin: '0 5px' }}></div>
 

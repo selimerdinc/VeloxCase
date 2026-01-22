@@ -12,10 +12,9 @@ class EncryptionService:
         if cls._cipher_suite is None:
             key = current_app.config.get('ENCRYPTION_KEY')
             if not key:
-                # print yerine warning
-                key = Fernet.generate_key().decode()
-                logger.warning(
-                    "⚠️ ENCRYPTION_KEY bulunamadı, geçici key kullanılıyor. Uygulama yeniden başlayınca veriler çözülemeyebilir!")
+                logger.error(
+                    "❌ KRİTİK HATA: ENCRYPTION_KEY bulunamadı! Ayarlar deşifre edilemez. Lütfen .env dosyasını kontrol edin.")
+                raise ValueError("ENCRYPTION_KEY is required for encryption/decryption")
             cls._cipher_suite = Fernet(key)
         return cls._cipher_suite
 

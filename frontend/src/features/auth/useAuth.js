@@ -10,8 +10,14 @@ import config from '../../config';
  */
 export const useAuth = () => {
     // --- AUTH STATE'leri ---
-    const [token, setToken] = useState(null);
+    const [token, setToken] = useState(() => localStorage.getItem(config.TOKEN_KEY));
+    const [isAdmin, setIsAdmin] = useState(() => localStorage.getItem('veloxcase_is_admin') === 'true');
     const [isLoadingInitial, setIsLoadingInitial] = useState(true);
+
+    // Axios header'ı beklemeden set et (Refresh için kritik)
+    if (token && !axios.defaults.headers.common['Authorization']) {
+        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    }
 
     const [isRegistering, setIsRegistering] = useState(false);
     const [username, setUsername] = useState('');
@@ -26,11 +32,7 @@ export const useAuth = () => {
 
     // --- YAN ETKİLER ---
     useEffect(() => {
-        const storedToken = localStorage.getItem(config.TOKEN_KEY);
-        if (storedToken) {
-            setToken(storedToken);
-            axios.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
-        }
+        // Zaten useState initializer ile aldık, burada sadece init bitiriyoruz
         setIsLoadingInitial(false);
     }, []);
 
@@ -106,10 +108,13 @@ export const useAuth = () => {
             } else {
                 // --- GİRİŞ BAŞARILI ---
                 const receivedToken = res.data.access_token;
+                const receivedIsAdmin = res.data.is_admin || false;
                 if (!receivedToken) { throw new Error("API'den geçerli token alınamadı."); }
 
                 localStorage.setItem(config.TOKEN_KEY, receivedToken);
+                localStorage.setItem('veloxcase_is_admin', receivedIsAdmin.toString());
                 setToken(receivedToken);
+                setIsAdmin(receivedIsAdmin);
                 setAuthKey(prev => prev + 1);
 
                 // Giriş yapıldıktan sonra formları tamamen temizle
@@ -148,7 +153,9 @@ export const useAuth = () => {
     // --- İŞLEV: Oturumu Kapatma ---
     const handleLogout = useCallback(() => {
         localStorage.removeItem(config.TOKEN_KEY);
+        localStorage.removeItem('veloxcase_is_admin');
         setToken(null);
+        setIsAdmin(false);
         setAuthKey(prev => prev + 1);
         setUsername('');
         setPassword('');
@@ -165,6 +172,7 @@ export const useAuth = () => {
     // --- ARAYÜZ ---
     return {
         token,
+        isAdmin,
         authKey,
         strengthScore,
         isRegistering,
