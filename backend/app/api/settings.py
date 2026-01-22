@@ -1,7 +1,6 @@
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_jwt_extended import jwt_required, get_jwt_identity, current_user
 from app.extensions import db
-from app.models.user import User
 from app.models.setting import Setting
 from app.services.encryption_service import EncryptionService
 
@@ -37,7 +36,6 @@ def get_settings():
               type: string
               description: Güvenlik nedeniyle maskeli gelir
     """
-    current_user = User.query.filter_by(username=get_jwt_identity()).first()
     if not current_user:
         return jsonify({"error": "Kullanıcı bulunamadı"}), 404
     user_settings = Setting.query.filter_by(user_id=current_user.id).all()
@@ -105,7 +103,6 @@ def update_settings():
       200:
         description: Kayıt başarılı
     """
-    current_user = User.query.filter_by(username=get_jwt_identity()).first()
     if not current_user:
         return jsonify({"error": "Kullanıcı bulunamadı"}), 404
     data = request.json

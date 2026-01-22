@@ -212,9 +212,22 @@ def change_password():
             return jsonify({"msg": "Yeni şifre en az 8 karakter olmalıdır"}), 400
 
         user.password_hash = generate_password_hash(new_password, method='pbkdf2:sha256')
-        db.session.commit()
         return jsonify({"msg": "Şifreniz başarıyla güncellendi"}), 200
     except Exception as e:
         import logging
         logging.getLogger(__name__).error(f"Change password error: {e}")
         return jsonify({"msg": "Şifre değiştirme sırasında bir hata oluştu"}), 500
+
+@auth_bp.route('/verify-token', methods=['GET'])
+@jwt_required()
+def verify_token():
+    """
+    Token Doğrulama
+    Frontend açılışında token'ın hala geçerli olup olmadığını kontrol eder.
+    """
+    from flask_jwt_extended import current_user
+    return jsonify({
+        "valid": True,
+        "username": current_user.username,
+        "is_admin": current_user.is_admin
+    }), 200

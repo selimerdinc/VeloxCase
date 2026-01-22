@@ -22,18 +22,30 @@ class VeloxCaseSyncService:
     def __init__(self, user_id):
         self.user_id = user_id
         self.session = requests.Session()
+        self.settings_cache = {}
+        self._load_all_settings()
         self._setup_config()
 
+    def _load_all_settings(self):
+        """Kullanıcının tüm ayarlarını tek bir SQL sorgusu ile topluca yükle (Performance Optimization)"""
+        try:
+            all_settings = Setting.query.filter_by(user_id=self.user_id).all()
+            self.settings_cache = {s.key: s.value for s in all_settings}
+            logger.info(f"User {self.user_id}: Loaded {len(self.settings_cache)} settings into cache.")
+        except Exception as e:
+            logger.error(f"Error loading settings for user {self.user_id}: {e}")
+            self.settings_cache = {}
+
     def _get_setting(self, key):
-        """Ayarları getir - sadece hassas anahtarları deşifre et"""
+        """Cache'den ayar getir - sadece hassas değerleri deşifre et"""
+        val = self.settings_cache.get(key, "")
+        if not val:
+            return ""
+
         sensitive_keys = ["JIRA_API_TOKEN", "TESTMO_API_KEY", "AI_API_KEY"]
-        s = Setting.query.filter_by(user_id=self.user_id, key=key).first()
-        if s and s.value:
-            if key in sensitive_keys:
-                return EncryptionService.decrypt(s.value)
-            else:
-                return s.value
-        return ""
+        if key in sensitive_keys:
+            return EncryptionService.decrypt(val)
+        return val
 
 
     def is_safe_url(self, url):

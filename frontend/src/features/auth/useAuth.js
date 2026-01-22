@@ -32,9 +32,21 @@ export const useAuth = () => {
 
     // --- YAN ETKİLER ---
     useEffect(() => {
-        // Zaten useState initializer ile aldık, burada sadece init bitiriyoruz
-        setIsLoadingInitial(false);
-    }, []);
+        const checkToken = async () => {
+            if (token) {
+                try {
+                    // Token geçerli mi backend'e sor
+                    await axios.get(`${config.API_BASE_URL}/verify-token`);
+                } catch (err) {
+                    console.error("Session expired or invalid token:", err);
+                    handleLogout(); // Geçersizse çıkış yap
+                }
+            }
+            setIsLoadingInitial(false);
+        };
+
+        checkToken();
+    }, [token, handleLogout]);
 
     useEffect(() => {
         if (token) {

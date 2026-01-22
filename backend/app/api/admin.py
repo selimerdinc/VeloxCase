@@ -7,9 +7,8 @@ import secrets
 import logging
 from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_jwt_extended import jwt_required, get_jwt_identity, current_user
 from app.extensions import db, limiter
-from app.models.user import User
 from app.models.invite_code import InviteCode
 
 # Loglama yapılandırması
@@ -19,11 +18,10 @@ admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
 
 
 def require_admin():
-    """Admin yetkisi kontrolü - decorator yerine iç kontrol olarak kullanılır"""
-    user = User.query.filter_by(username=get_jwt_identity()).first()
-    if not user or not user.is_admin:
+    """Admin yetkisi kontrolü - current_user kullanarak optimize edildi"""
+    if not current_user or not current_user.is_admin:
         return None
-    return user
+    return current_user
 
 
 def generate_invite_code():

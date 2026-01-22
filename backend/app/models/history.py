@@ -3,6 +3,9 @@ from app.extensions import db
 
 class History(db.Model):
     __tablename__ = 'history'
+    __table_args__ = (
+        db.Index('ix_history_user_date', 'user_id', 'date'),
+    )
 
     id = db.Column(db.Integer, primary_key=True)
     date = db.Column(db.String(20))

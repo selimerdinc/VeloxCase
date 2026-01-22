@@ -1,14 +1,24 @@
-// src/features/dashboard/useDashboard.js
-
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 import config from '../../config';
+import { useApp } from '../../context/AppContext';
 
 /**
  * useDashboard: Dashboard ekranının tüm veri yönetimi ve iş mantığını yönetir.
  */
 export const useDashboard = (token, currentView, onLogout, navigate) => {
+    // --- GLOBAL CONTEXT ---
+    const {
+        settings: settingsData,
+        stats,
+        fetchGlobalData: fetchStats,
+        updateSettings: setSettingsData
+    } = useApp();
+
+    // --- CACHE & INITIALIZATION REFS ---
+    const lastFetchedRepoId = useRef(null);
+
     // --- DASHBOARD STATE'leri ---
     const [repoId, setRepoId] = useState(1);
     const [folders, setFolders] = useState([]);
@@ -41,20 +51,22 @@ export const useDashboard = (token, currentView, onLogout, navigate) => {
     const [analysisLoading, setAnalysisLoading] = useState(false);
     const [showAnalysisPanel, setShowAnalysisPanel] = useState(false);
 
-    // --- SETTINGS & DATA STATE'leri ---
-
-    const [settingsData, setSettingsData] = useState({});
-    const [settingsLoading, setSettingsLoading] = useState(false);
+    // --- LOCAL DATA STATE'leri ---
     const [historyData, setHistoryData] = useState([]);
-    const [stats, setStats] = useState({ total_cases: 0, total_images: 0, today_syncs: 0 });
     const [settingsTab, setSettingsTab] = useState('api');
     const [passwordData, setPasswordData] = useState({ old: '', new: '', confirm: '' });
     const [passwordErrors, setPasswordErrors] = useState({ old: false, new: false, confirm: false });
+    const [settingsLoading, setSettingsLoading] = useState(false);
 
 
     // --- VERİ ÇEKME İŞLEVLERİ ---
-    const fetchFolders = useCallback(async () => {
-        if (!repoId || !token || currentView !== 'dashboard') return;
+    const fetchFolders = useCallback(async (force = false) => {
+        // Eğer repoId aynıysa ve force değilse çekme (Önbellekleme Mantığı)
+        if (!force && lastFetchedRepoId.current === repoId && folders.length > 0) {
+            return;
+        }
+
+        if (!repoId || !token) return;
         setFoldersLoading(true);
         try {
             const res = await axios.get(`${config.API_BASE_URL}/folders/${repoId}`);
@@ -99,6 +111,7 @@ export const useDashboard = (token, currentView, onLogout, navigate) => {
             const processedList = buildTree(list);
 
             setFolders(processedList);
+            lastFetchedRepoId.current = repoId; // CACHE UPDATED
 
             // LocalStorage'dan son seçilen klasörü restore et
             const savedFolderId = localStorage.getItem(`veloxcase_folder_${repoId}`);
@@ -111,56 +124,35 @@ export const useDashboard = (token, currentView, onLogout, navigate) => {
         } finally {
             setFoldersLoading(false);
         }
-    }, [repoId, token, currentView, onLogout]);
-
-    const fetchStats = useCallback(async () => {
-        if (!token || currentView !== 'dashboard') return;
-        try {
-            const res = await axios.get(`${config.API_BASE_URL}/stats`);
-            setStats(res.data);
-        } catch (err) {
-            console.error(err);
-        }
-    }, [token, currentView]);
+    }, [repoId, token, folders.length, onLogout]);
 
 
     // --- YAN ETKİLER (USE EFFECT) ---
-    useEffect(() => {
-        if (token && currentView === 'dashboard') {
-            // Dashboard yüklendiğinde ÖNCE ayarları çek (Project ID için)
-            axios.get(`${config.API_BASE_URL}/settings`)
-                .then(res => {
-                    setSettingsData(res.data);
-                    if (res.data.TESTMO_PROJECT_ID) {
-                        setRepoId(parseInt(res.data.TESTMO_PROJECT_ID, 10));
-                    }
-                })
-                .catch(err => console.error('Settings fetch error:', err));
 
-            fetchStats();
+    // Settings'den Project ID'yi al
+    useEffect(() => {
+        if (settingsData && settingsData.TESTMO_PROJECT_ID) {
+            const pid = parseInt(settingsData.TESTMO_PROJECT_ID, 10);
+            if (pid !== repoId) {
+                setRepoId(pid);
+            }
         }
-    }, [token, currentView, fetchStats]);
+    }, [settingsData, repoId]);
 
     // repoId değiştikçe klasörleri çek
     useEffect(() => {
-        if (token && currentView === 'dashboard' && repoId) {
+        if (token && repoId && currentView === 'dashboard') {
             fetchFolders();
         }
     }, [repoId, token, currentView, fetchFolders]);
 
 
     useEffect(() => {
-        if (currentView === 'history' && token) {
+        if (currentView === 'history' && token && historyData.length === 0) {
             axios.get(`${config.API_BASE_URL}/history`).then(res => setHistoryData(res.data));
         }
-        if (currentView === 'settings' && token) {
-            axios.get(`${config.API_BASE_URL}/settings`).then(res => {
-                // eslint-disable-next-line no-unused-vars
-                const { ...cleanData } = res.data;
-                setSettingsData(cleanData);
-            });
-        }
-    }, [currentView, token]);
+        // Settings artık Context'ten geliyor, burada fetch etmeye gerek yok.
+    }, [currentView, token, historyData.length]);
 
     useEffect(() => {
         setPreviewTask(null);

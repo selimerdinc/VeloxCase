@@ -1,7 +1,6 @@
 from flask import Blueprint, jsonify
-from flask_jwt_extended import jwt_required, get_jwt_identity
+from flask_jwt_extended import jwt_required, get_jwt_identity, current_user
 from datetime import datetime
-from app.models.user import User
 from app.models.history import History
 
 stats_bp = Blueprint('stats', __name__, url_prefix='/api')
@@ -32,10 +31,9 @@ def get_stats():
             total_syncs:
               type: integer
     """
-    user = User.query.filter_by(username=get_jwt_identity()).first()
-    if not user:
+    if not current_user:
         return jsonify({"error": "Kullanıcı bulunamadı"}), 404
-    logs = History.query.filter_by(user_id=user.id).all()
+    logs = History.query.filter_by(user_id=current_user.id).all()
     today = datetime.now().strftime("%Y-%m-%d")
     return jsonify({
         "total_cases": sum(l.cases_count for l in logs),
@@ -74,8 +72,7 @@ def get_history():
               status:
                 type: string
     """
-    user = User.query.filter_by(username=get_jwt_identity()).first()
-    if not user:
+    if not current_user:
         return jsonify({"error": "Kullanıcı bulunamadı"}), 404
-    logs = History.query.filter_by(user_id=user.id).order_by(History.id.desc()).limit(50).all()
+    logs = History.query.filter_by(user_id=current_user.id).order_by(History.id.desc()).limit(50).all()
     return jsonify([{"id": l.id, "date": l.date, "task": l.task, "case": l.case_name, "status": l.status} for l in logs])
