@@ -1,0 +1,22 @@
+name: VeloxCase Auto Deploy
+
+on:
+  push:
+    branches:
+      - main  # Hangi branch'e push atınca çalışmasını istiyorsanız
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to Server via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            cd /home/ubuntu/VeloxCase
+            git pull origin main
+            chmod +x scripts/deploy.sh
+            ./scripts/deploy.sh
