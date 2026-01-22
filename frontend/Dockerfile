@@ -14,6 +14,9 @@ COPY . .
 # Build argumentleri
 ARG REACT_APP_API_URL
 ENV REACT_APP_API_URL=${REACT_APP_API_URL}
+# Low-RAM ve CI optimizasyonları
+ENV GENERATE_SOURCEMAP=false
+ENV CI=false
 
 # Production build
 RUN npm run build

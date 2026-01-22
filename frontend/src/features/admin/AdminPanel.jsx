@@ -4,8 +4,8 @@ import axios from 'axios';
 import toast from 'react-hot-toast';
 import {
     ArrowLeft, Ticket, UserCog, Plus, Copy, Trash2,
-    Loader2, Shield, Users, History, Calendar, CheckCircle2, XCircle, Search,
-    MoreHorizontal, RefreshCw
+    Loader2, Shield, Users, History, Calendar, CheckCircle2,
+    RefreshCw
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/useAuth';
@@ -75,11 +75,11 @@ function AdminPanel() {
         }
     }, []);
 
-    const refreshData = async () => {
+    const refreshData = useCallback(async () => {
         setLoading(true);
         await Promise.all([fetchInviteCodes(), fetchUsers()]);
         setLoading(false);
-    };
+    }, [fetchInviteCodes, fetchUsers]);
 
     useEffect(() => {
         if (isInitialized) {

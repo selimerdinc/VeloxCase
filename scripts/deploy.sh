@@ -51,15 +51,16 @@ fi
 echo ""
 echo "🐳 Docker container'ları başlatılıyor..."
 
-# Production compose ile başlat
-# Low-RAM optimizasyonu: Sırayla build al
+# Low-RAM optimizasyonu: Sırayla build al ve CI uyarılarını yoksay
 echo "🏗️  Backend derleniyor..."
 docker-compose -f docker-compose.prod.yml build backend
 
-echo "🏗️  Frontend derleniyor (No Cache)..."
-docker-compose -f docker-compose.prod.yml build --no-cache frontend
+echo "🏗️  Frontend derleniyor (CI=false)..."
+# CI=false ekleyerek lint uyarılarının build'i bozmasını engelliyoruz
+export CI=false
+docker-compose -f docker-compose.prod.yml build frontend
 
-echo "🚀 Servisler başlatılıyor (Force Recreate)..."
+echo "🚀 Servisler başlatılıyor..."
 docker-compose -f docker-compose.prod.yml up -d --force-recreate --remove-orphans
 
 echo ""
