@@ -17,6 +17,7 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           script: |
             cd /home/ubuntu/VeloxCase
+            git remote set-url origin https://github.com/selimerdinc/VeloxCase.git
             git pull origin main
             chmod +x scripts/deploy.sh
             ./scripts/deploy.sh
