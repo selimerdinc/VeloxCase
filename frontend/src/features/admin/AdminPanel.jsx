@@ -224,7 +224,7 @@ function AdminPanel() {
             <div className="admin-header-new">
                 <div className="admin-header-left">
                     <div className="header-titles">
-                        <h1>Admin<span className="text-primary">Panel</span></h1>
+                        <h1>Admin<span className="text-primary">Panel</span> <span style={{ fontSize: '0.8rem', opacity: 0.5 }}>v1.0.1</span></h1>
                         <p>Sistem Yönetimi ve Davet Kodları</p>
                     </div>
                 </div>

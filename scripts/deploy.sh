@@ -56,11 +56,11 @@ echo "🐳 Docker container'ları başlatılıyor..."
 echo "🏗️  Backend derleniyor..."
 docker-compose -f docker-compose.prod.yml build backend
 
-echo "🏗️  Frontend derleniyor..."
-docker-compose -f docker-compose.prod.yml build frontend
+echo "🏗️  Frontend derleniyor (No Cache)..."
+docker-compose -f docker-compose.prod.yml build --no-cache frontend
 
-echo "🚀 Servisler başlatılıyor..."
-docker-compose -f docker-compose.prod.yml up -d
+echo "🚀 Servisler başlatılıyor (Force Recreate)..."
+docker-compose -f docker-compose.prod.yml up -d --force-recreate --remove-orphans
 
 echo ""
 echo -e "${GREEN}✅ VeloxCase başarıyla deploy edildi!${NC}"
