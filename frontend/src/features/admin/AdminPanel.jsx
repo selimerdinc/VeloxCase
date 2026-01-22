@@ -218,165 +218,145 @@ function AdminPanel() {
     // 5. RENDER: ANA PANEL (PREMIUM TASARIM)
     // -------------------------------------------------------------------------
     return (
-        <div className="min-h-screen bg-[#F8FAFC] p-4 md:p-8 font-sans text-slate-800">
+        <div className="admin-container">
 
             {/* HEADER */}
-            <div className="max-w-7xl mx-auto mb-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
-                <div>
-                    <h1 className="text-4xl font-black text-slate-900 tracking-tight mb-2">
-                        Admin<span className="text-blue-600">Panel</span>
-                    </h1>
-                    <p className="text-slate-500 font-medium flex items-center gap-2">
-                        <UserCog size={18} /> Sistem Yönetimi ve Davet Kodları
-                    </p>
+            <div className="admin-header-new">
+                <div className="admin-header-left">
+                    <div className="header-titles">
+                        <h1>Admin<span className="text-primary">Panel</span></h1>
+                        <p>Sistem Yönetimi ve Davet Kodları</p>
+                    </div>
                 </div>
-                <div className="flex items-center gap-3">
-                    <button onClick={() => navigate('/')} className="px-6 py-3 bg-white border border-slate-200 text-slate-600 font-bold rounded-2xl hover:shadow-lg hover:border-blue-200 transition-all flex items-center gap-2">
+                <div className="flex-row gap-md">
+                    <button onClick={() => navigate('/')} className="btn-back">
                         <ArrowLeft size={18} /> Geri Dön
                     </button>
-                    <button onClick={refreshData} className="p-3 bg-white border border-slate-200 text-slate-600 rounded-2xl hover:text-blue-600 hover:rotate-180 transition-all duration-500">
-                        <RefreshCw size={20} />
+                    <button onClick={refreshData} className="btn-icon-sm" title="Yenile">
+                        <RefreshCw size={20} className={loading ? 'spinner' : ''} />
                     </button>
                 </div>
             </div>
 
             {/* CREATE BAR & TABS */}
-            <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6 mb-10">
-
-                {/* SOL: QUICK ACTIONS (CREATE CODE) */}
-                <div className="lg:col-span-8 bg-white rounded-[2rem] p-8 shadow-xl shadow-slate-200/50 border border-white">
-                    <div className="flex flex-col md:flex-row items-end gap-6">
-                        <div className="flex-1 w-full">
-                            <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Kullanım Hakkı</label>
-                            <div className="relative">
-                                <select
-                                    className="w-full bg-slate-50 border-none rounded-2xl py-4 px-5 font-bold text-slate-700 appearance-none focus:ring-2 focus:ring-blue-500 transition-all"
-                                    value={newCodeSettings.max_uses}
-                                    onChange={e => setNewCodeSettings(s => ({ ...s, max_uses: parseInt(e.target.value) }))}
-                                >
-                                    <option value={1}>1 Kişilik (Tek)</option>
-                                    <option value={5}>5 Kişilik (Ekip)</option>
-                                    <option value={100}>100 Kişilik (Kurumsal)</option>
-                                    <option value={1000}>Sınırsız (Genel)</option>
-                                </select>
-                                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400"><MoreHorizontal size={16} /></div>
-                            </div>
-                        </div>
-                        <div className="flex-1 w-full">
-                            <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-3 block">Geçerlilik</label>
-                            <div className="relative">
-                                <select
-                                    className="w-full bg-slate-50 border-none rounded-2xl py-4 px-5 font-bold text-slate-700 appearance-none focus:ring-2 focus:ring-blue-500 transition-all"
-                                    value={newCodeSettings.expires_in_days}
-                                    onChange={e => setNewCodeSettings(s => ({ ...s, expires_in_days: parseInt(e.target.value) }))}
-                                >
-                                    <option value={1}>24 Saat</option>
-                                    <option value={7}>1 Hafta</option>
-                                    <option value={30}>1 Ay</option>
-                                    <option value={365}>1 Yıl</option>
-                                    <option value={0}>Süresiz</option>
-                                </select>
-                                <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400"><Calendar size={16} /></div>
-                            </div>
-                        </div>
-                        <button
-                            onClick={handleCreateCode}
-                            disabled={creating}
-                            className="bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-2xl font-bold shadow-lg shadow-blue-200 hover:shadow-blue-300 transition-all flex items-center gap-2 justify-center min-w-[160px]"
-                        >
-                            {creating ? <Loader2 className="animate-spin" /> : <><Plus size={20} strokeWidth={3} /> KOD OLUŞTUR</>}
-                        </button>
-                    </div>
+            <div className="premium-control-card">
+                <div className="card-header-mini">
+                    <Plus size={20} className="text-primary" />
+                    <h3>Yeni Kod Oluştur</h3>
                 </div>
 
-                {/* SAĞ: NAVIGATION TABS */}
-                <div className="lg:col-span-4 bg-slate-100 rounded-[2rem] p-2 flex items-center">
+                <div className="form-row-premium">
+                    <div className="form-group-p">
+                        <label>Kullanım Hakkı</label>
+                        <select
+                            className="premium-select"
+                            value={newCodeSettings.max_uses}
+                            onChange={e => setNewCodeSettings(s => ({ ...s, max_uses: parseInt(e.target.value) }))}
+                        >
+                            <option value={1}>1 Kişilik (Tek)</option>
+                            <option value={5}>5 Kişilik (Ekip)</option>
+                            <option value={100}>100 Kişilik (Kurumsal)</option>
+                            <option value={1000}>Sınırsız (Genel)</option>
+                        </select>
+                    </div>
+
+                    <div className="form-group-p">
+                        <label>Geçerlilik</label>
+                        <select
+                            className="premium-select"
+                            value={newCodeSettings.expires_in_days}
+                            onChange={e => setNewCodeSettings(s => ({ ...s, expires_in_days: parseInt(e.target.value) }))}
+                        >
+                            <option value={1}>24 Saat</option>
+                            <option value={7}>1 Hafta</option>
+                            <option value={30}>1 Ay</option>
+                            <option value={365}>1 Yıl</option>
+                            <option value={0}>Süresiz</option>
+                        </select>
+                    </div>
+
                     <button
-                        onClick={() => setActiveTab('invites')}
-                        className={`flex-1 flex items-center justify-center gap-2 py-6 rounded-[1.5rem] font-black transition-all ${activeTab === 'invites' ? 'bg-white text-blue-600 shadow-lg' : 'text-slate-500 hover:text-slate-700'
-                            }`}
+                        onClick={handleCreateCode}
+                        disabled={creating}
+                        className="btn-premium"
+                        style={{ minWidth: '200px' }}
                     >
-                        <Ticket size={20} />
-                        Kodlar
-                        <span className="bg-slate-100 px-2 py-0.5 rounded-md text-xs text-slate-500">{inviteCodes.length}</span>
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('users')}
-                        className={`flex-1 flex items-center justify-center gap-2 py-6 rounded-[1.5rem] font-black transition-all ${activeTab === 'users' ? 'bg-white text-blue-600 shadow-lg' : 'text-slate-500 hover:text-slate-700'
-                            }`}
-                    >
-                        <Users size={20} />
-                        Kullanıcılar
-                        <span className="bg-slate-100 px-2 py-0.5 rounded-md text-xs text-slate-500">{users.length}</span>
+                        {creating ? <Loader2 className="spinner" /> : <span>KOD OLUŞTUR</span>}
                     </button>
                 </div>
             </div>
 
-            {/* CONTENT AREA */}
-            <div className="max-w-7xl mx-auto">
-                {activeTab === 'invites' && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                        {inviteCodes.map(code => (
-                            <div key={code.id} className={`group relative bg-white rounded-[2.5rem] p-8 transition-all hover:-translate-y-1 hover:shadow-2xl hover:shadow-slate-200/50 border-2 ${code.is_valid ? 'border-transparent' : 'border-red-50 opacity-80'}`}>
+            {/* TABS NAVIGATION */}
+            <div className="admin-tabs-premium" style={{ marginBottom: '2rem' }}>
+                <button
+                    onClick={() => setActiveTab('invites')}
+                    className={`admin-tab-btn ${activeTab === 'invites' ? 'active' : ''}`}
+                >
+                    <Ticket size={20} />
+                    Kodlar ({inviteCodes.length})
+                </button>
+                <button
+                    onClick={() => setActiveTab('users')}
+                    className={`admin-tab-btn ${activeTab === 'users' ? 'active' : ''}`}
+                >
+                    <Users size={20} />
+                    Kullanıcılar ({users.length})
+                </button>
+            </div>
 
-                                {/* Üst Kısım: Kod ve Status */}
-                                <div className="flex justify-between items-start mb-6">
-                                    <div className="space-y-1">
-                                        <div className="flex items-center gap-2 cursor-pointer" onClick={() => handleCopyCode(code.code)}>
-                                            <h3 className="text-3xl font-black text-slate-800 tracking-tighter">{code.code}</h3>
-                                            <Copy size={18} className="text-slate-300 group-hover:text-blue-500 transition-colors" />
+            {/* CONTENT AREA */}
+            <div className="fade-in">
+                {activeTab === 'invites' && (
+                    <div className="admin-grid">
+                        {inviteCodes.map(code => (
+                            <div key={code.id} className={`invite-card-p ${!code.is_valid ? 'expired' : ''}`}>
+                                <div className="invite-card-top">
+                                    <div className="code-display">
+                                        <div className="premium-code" onClick={() => handleCopyCode(code.code)}>
+                                            {code.code}
+                                            <Copy size={16} className="text-muted" />
                                         </div>
-                                        <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border ${code.is_valid ? 'bg-green-50 text-green-600 border-green-100' : 'bg-red-50 text-red-500 border-red-100'}`}>
+                                        <span className={code.is_valid ? 'badge-success' : 'badge-danger'}>
                                             {code.is_valid ? 'Aktif' : 'Pasif'}
                                         </span>
                                     </div>
-                                    <button onClick={() => handleDeleteCode(code)} className="p-3 rounded-2xl bg-slate-50 text-slate-400 hover:bg-red-500 hover:text-white transition-all">
-                                        <Trash2 size={20} />
-                                    </button>
+                                    <div className="invite-actions">
+                                        <button onClick={() => handleDeleteCode(code)} className="btn-icon-sm-danger">
+                                            <Trash2 size={18} />
+                                        </button>
+                                    </div>
                                 </div>
 
-                                {/* Bilgi Kartları */}
-                                <div className="grid grid-cols-2 gap-3 mb-6">
-                                    <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
-                                        <span className="text-[10px] uppercase font-black text-slate-400 block mb-1">Kullanım</span>
-                                        <div className="text-lg font-bold text-slate-700">
-                                            {code.current_uses} <span className="text-slate-400 text-sm">/ {code.max_uses > 900 ? '∞' : code.max_uses}</span>
-                                        </div>
-                                        <div className="w-full bg-slate-200 h-1.5 rounded-full mt-2 overflow-hidden">
-                                            <div
-                                                className="bg-blue-500 h-full rounded-full transition-all"
-                                                style={{ width: `${Math.min((code.current_uses / (code.max_uses || 1)) * 100, 100)}%` }}
-                                            />
-                                        </div>
+                                <div className="invite-card-details">
+                                    <div className="detail-item">
+                                        <CheckCircle2 size={14} />
+                                        <span>{code.current_uses} / {code.max_uses > 900 ? '∞' : code.max_uses} Kullanım</span>
                                     </div>
-                                    <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100">
-                                        <span className="text-[10px] uppercase font-black text-slate-400 block mb-1">Kalan Süre</span>
-                                        <div className="text-lg font-bold text-slate-700">
+                                    <div className="detail-item">
+                                        <Calendar size={14} />
+                                        <span>
                                             {code.expires_at ?
                                                 (() => {
                                                     const diff = new Date(code.expires_at) - new Date();
                                                     const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
-                                                    return days > 0 ? `${days} Gün` : 'Doldu';
+                                                    return days > 0 ? `${days} Gün Kaldı` : 'Süresi Doldu';
                                                 })()
                                                 : 'Süresiz'}
-                                        </div>
+                                        </span>
                                     </div>
                                 </div>
 
-                                {/* Kullananlar Listesi */}
-                                <div className="border-t border-slate-100 pt-5">
-                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-2">
-                                        <History size={12} /> Kullanan Kişiler ({code.used_by_usernames?.length || 0})
-                                    </p>
-                                    <div className="flex flex-wrap gap-2 max-h-[100px] overflow-y-auto">
+                                <div className="usage-history-section">
+                                    <div className="history-label">
+                                        <History size={14} /> Kullanan Kişiler
+                                    </div>
+                                    <div className="history-tags">
                                         {code.used_by_usernames && code.used_by_usernames.length > 0 ? (
                                             code.used_by_usernames.map((u, i) => (
-                                                <span key={i} className="text-xs font-bold px-3 py-1.5 bg-blue-50 text-blue-700 rounded-xl">
-                                                    @{u}
-                                                </span>
+                                                <span key={i} className="usage-tag">@{u}</span>
                                             ))
                                         ) : (
-                                            <span className="text-xs text-slate-400 italic">Henüz kullanılmadı.</span>
+                                            <span className="text-muted italic" style={{ fontSize: '0.8rem' }}>Henüz kullanılmadı</span>
                                         )}
                                     </div>
                                 </div>
@@ -386,97 +366,69 @@ function AdminPanel() {
                 )}
 
                 {activeTab === 'users' && (
-                    <div className="bg-white rounded-[3rem] p-2 shadow-2xl shadow-slate-200/50">
-                        <table className="w-full text-left border-collapse">
-                            <thead>
-                                <tr className="border-b border-slate-100 text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">
-                                    <th className="p-6 pl-10">Kullanıcı</th>
-                                    <th className="p-6">Rol</th>
-                                    <th className="p-6">ID</th>
-                                    <th className="p-6 text-right pr-10">İşlemler</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {users.map(user => (
-                                    <tr key={user.id} className="group hover:bg-slate-50 transition-colors">
-                                        <td className="p-6 pl-10">
-                                            <div className="flex items-center gap-4">
-                                                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-lg font-black ${user.is_admin ? 'bg-gradient-to-br from-blue-500 to-purple-600 text-white shadow-lg shadow-blue-200' : 'bg-slate-200 text-slate-500'}`}>
-                                                    {user.username.charAt(0).toUpperCase()}
-                                                </div>
-                                                <span className="font-bold text-slate-800 text-lg">@{user.username}</span>
-                                            </div>
-                                        </td>
-                                        <td className="p-6">
-                                            {user.is_admin ?
-                                                <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-blue-50 text-blue-600 border border-blue-100 text-xs font-black uppercase tracking-wider">
-                                                    <Shield size={12} /> Admin
-                                                </span> :
-                                                <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full bg-slate-100 text-slate-500 text-xs font-black uppercase tracking-wider">
-                                                    User
-                                                </span>
-                                            }
-                                        </td>
-                                        <td className="p-6 font-mono text-slate-400">#{user.id}</td>
-                                        <td className="p-6 pr-10 text-right">
-                                            <div className="flex justify-end gap-2 opacity-0 group-hover:opacity-100 transition-all translate-x-4 group-hover:translate-x-0">
-                                                <button
-                                                    onClick={() => handleToggleAdmin(user.id, user.is_admin)}
-                                                    className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:border-blue-500 hover:text-blue-600 transition-all"
-                                                >
-                                                    {user.is_admin ? 'Yetkiyi Al' : 'Admin Yap'}
-                                                </button>
-                                                <button
-                                                    onClick={() => handleDeleteUser(user)}
-                                                    className="p-2 bg-red-50 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-all"
-                                                >
-                                                    <Trash2 size={16} />
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                    <div className="user-management-list">
+                        {users.map(user => (
+                            <div key={user.id} className="user-item-premium slide-up-anim">
+                                <div className="user-info-p">
+                                    <div className={`user-avatar-p ${user.is_admin ? 'admin' : ''}`}>
+                                        {user.is_admin ? <Shield size={20} /> : <Users size={20} />}
+                                    </div>
+                                    <div className="user-text-p">
+                                        <span className="user-name">@{user.username}</span>
+                                        <span className="user-role">{user.is_admin ? 'Yönetici' : 'Standart Kullanıcı'}</span>
+                                    </div>
+                                </div>
+                                <div className="user-actions-p">
+                                    <button
+                                        onClick={() => handleToggleAdmin(user.id, user.is_admin)}
+                                        className="btn-outline primary"
+                                    >
+                                        {user.is_admin ? 'Yetkiyi Al' : 'Admin Yap'}
+                                    </button>
+                                    <button
+                                        onClick={() => handleDeleteUser(user)}
+                                        className="btn-outline danger"
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
+                                </div>
+                            </div>
+                        ))}
                     </div>
                 )}
             </div>
 
             {/* CONFIRM MODAL */}
             {confirmModal.isOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in" onClick={() => setConfirmModal(p => ({ ...p, isOpen: false }))}>
-                    <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full shadow-2xl transform scale-100 animate-scale-in" onClick={e => e.stopPropagation()}>
-                        <div className={`w-16 h-16 rounded-3xl flex items-center justify-center mb-6 mx-auto ${confirmModal.isDanger ? 'bg-red-50 text-red-500' : 'bg-blue-50 text-blue-500'}`}>
-                            {confirmModal.isDanger ? <Trash2 size={32} /> : <CheckCircle2 size={32} />}
+                <div className="modal-overlay" onClick={() => setConfirmModal(p => ({ ...p, isOpen: false }))}>
+                    <div className="modal-card" onClick={e => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <div className={confirmModal.isDanger ? 'icon-box-warning' : 'icon-box-success'} style={{ background: confirmModal.isDanger ? 'var(--error-bg)' : 'var(--success-bg)', color: confirmModal.isDanger ? 'var(--error)' : 'var(--success)' }}>
+                                {confirmModal.isDanger ? <Trash2 size={24} /> : <CheckCircle2 size={24} />}
+                            </div>
+                            <h3 style={{ margin: 0, fontWeight: 800 }}>{confirmModal.title}</h3>
                         </div>
-                        <h3 className="text-xl font-black text-center text-slate-900 mb-2">{confirmModal.title}</h3>
-                        <p className="text-center text-slate-500 font-medium mb-8 leading-relaxed">
-                            {confirmModal.desc}
-                        </p>
-                        <div className="flex gap-3">
-                            <button
-                                onClick={() => setConfirmModal(p => ({ ...p, isOpen: false }))}
-                                className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-2xl font-bold hover:bg-slate-200 transition-colors"
-                            >
-                                İptal
-                            </button>
+                        <div className="modal-body">
+                            <p>{confirmModal.desc}</p>
+                        </div>
+                        <div className="modal-footer" style={{ flexDirection: 'column', gap: '0.5rem' }}>
                             <button
                                 onClick={confirmModal.action}
-                                className={`flex-1 py-3 text-white rounded-2xl font-bold shadow-lg transition-all ${confirmModal.isDanger ? 'bg-red-500 hover:bg-red-600 shadow-red-200' : 'bg-blue-600 hover:bg-blue-700 shadow-blue-200'}`}
+                                className={confirmModal.isDanger ? 'btn-confirm-danger' : 'btn-premium'}
+                                style={{ width: '100%' }}
                             >
                                 {confirmModal.confirmText}
+                            </button>
+                            <button
+                                onClick={() => setConfirmModal(p => ({ ...p, isOpen: false }))}
+                                className="btn-cancel"
+                            >
+                                İptal
                             </button>
                         </div>
                     </div>
                 </div>
             )}
-
-            <style>{`
-                @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
-                @keyframes scale-in { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-                .animate-fade-in { animation: fade-in 0.2s ease-out; }
-                .animate-scale-in { animation: scale-in 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
-            `}</style>
         </div>
     );
 }
