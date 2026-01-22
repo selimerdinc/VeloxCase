@@ -30,6 +30,20 @@ export const useAuth = () => {
     // Login Hang Fix için anahtar
     const [authKey, setAuthKey] = useState(0);
 
+    // --- İŞLEVLER (HOISTED) ---
+    const handleLogout = useCallback(() => {
+        localStorage.removeItem(config.TOKEN_KEY);
+        localStorage.removeItem('veloxcase_is_admin');
+        setToken(null);
+        setIsAdmin(false);
+        setAuthKey(prev => prev + 1);
+        setUsername('');
+        setPassword('');
+        setInviteCode('');
+        setErrors({ username: false, password: false, inviteCode: false });
+        toast('Oturum kapatıldı.', { icon: '🔒' });
+    }, []);
+
     // --- YAN ETKİLER ---
     useEffect(() => {
         const checkToken = async () => {
@@ -162,19 +176,7 @@ export const useAuth = () => {
         }
     }, [username, password, inviteCode, isRegistering]);
 
-    // --- İŞLEV: Oturumu Kapatma ---
-    const handleLogout = useCallback(() => {
-        localStorage.removeItem(config.TOKEN_KEY);
-        localStorage.removeItem('veloxcase_is_admin');
-        setToken(null);
-        setIsAdmin(false);
-        setAuthKey(prev => prev + 1);
-        setUsername('');
-        setPassword('');
-        setInviteCode('');
-        setErrors({ username: false, password: false, inviteCode: false });
-        toast('Oturum kapatıldı.', { icon: '🔒' });
-    }, []);
+
 
     // --- İŞLEV: Şifremi Unuttum ---
     const handleForgotPassword = useCallback(() => {
