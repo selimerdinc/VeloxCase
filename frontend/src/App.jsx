@@ -91,7 +91,7 @@ function App() {
             <button onClick={() => navigate('/settings')} className={`btn btn-text ${location.pathname === '/settings' ? 'text-primary' : ''}`} title="Ayarlar">
               <Settings size={18} /> Ayarlar
             </button>
-            {isAdmin && (
+            {isAdmin === true && (
               <button onClick={() => navigate('/admin')} className={`btn btn-text ${location.pathname === '/admin' ? 'text-primary' : ''}`} title="Admin Paneli">
                 <Shield size={18} /> Admin Panel
               </button>

@@ -1,0 +1,23 @@
+# Web Framework & Core
+Flask>=3.0.0
+Werkzeug>=3.0.0
+
+# Database & Models
+Flask-SQLAlchemy>=3.1.0
+SQLAlchemy>=2.0.0
+
+# Security & Auth
+Flask-JWT-Extended>=4.6.0
+Flask-CORS>=4.0.0
+cryptography>=41.0.0
+Flask-Limiter>=3.5.0
+
+# Documentation (Swagger)
+flasgger>=0.9.7.1
+
+# Environment & Utilities
+python-dotenv>=1.0.0
+requests>=2.31.0
+
+# Production Server (Deploy için gerekli)
+gunicorn>=21.2.0

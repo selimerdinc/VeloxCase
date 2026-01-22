@@ -4,7 +4,7 @@ Admin API endpoints - Davet kodu yönetimi
 Sadece is_admin=True olan kullanıcılar erişebilir
 """
 import secrets
-import re
+import logging
 from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
@@ -12,11 +12,14 @@ from app.extensions import db, limiter
 from app.models.user import User
 from app.models.invite_code import InviteCode
 
+# Loglama yapılandırması
+logger = logging.getLogger(__name__)
+
 admin_bp = Blueprint('admin', __name__, url_prefix='/api/admin')
 
 
 def require_admin():
-    """Admin yetkisi kontrolü - decorator olarak kullanılabilir"""
+    """Admin yetkisi kontrolü - decorator yerine iç kontrol olarak kullanılır"""
     user = User.query.filter_by(username=get_jwt_identity()).first()
     if not user or not user.is_admin:
         return None
@@ -43,7 +46,7 @@ def list_invite_codes():
       - Bearer: []
     responses:
       200:
-        description: Davet kodları listesi
+        description: Davet kodları listesi (Kullanan kullanıcı adları dahil)
       403:
         description: Admin yetkisi gerekli
     """
@@ -52,8 +55,18 @@ def list_invite_codes():
         return jsonify({"msg": "Bu işlem için admin yetkisi gereklidir"}), 403
 
     codes = InviteCode.query.order_by(InviteCode.created_at.desc()).all()
+
+    # Premium: Kodları kullanan kullanıcıların listesini de ekliyoruz
+    result = []
+    for code in codes:
+        c_dict = code.to_dict()
+        # InviteCode.to_dict() zaten 'used_by' içinde detayları veriyor.
+        # Biz burada sadece frontend'in beklediği formatta username listesi oluşturacağız.
+        c_dict['used_by_usernames'] = [u['username'] for u in c_dict.get('used_by', [])]
+        result.append(c_dict)
+
     return jsonify({
-        "invite_codes": [code.to_dict() for code in codes]
+        "invite_codes": result
     })
 
 
@@ -115,9 +128,12 @@ def create_invite_code():
     db.session.add(invite)
     db.session.commit()
 
+    res = invite.to_dict()
+    res['used_by_usernames'] = []
+
     return jsonify({
         "msg": "Davet kodu oluşturuldu",
-        "invite_code": invite.to_dict()
+        "invite_code": res
     }), 201
 
 
@@ -125,7 +141,7 @@ def create_invite_code():
 @jwt_required()
 def revoke_invite_code(code_id):
     """
-    Davet kodunu iptal et
+    Davet kodunu iptal et veya tamamen sil
     ---
     tags:
       - Admin
@@ -138,7 +154,7 @@ def revoke_invite_code(code_id):
         required: true
     responses:
       200:
-        description: Kod iptal edildi
+        description: Kod silindi veya iptal edildi
       403:
         description: Admin yetkisi gerekli
       404:
@@ -152,10 +168,20 @@ def revoke_invite_code(code_id):
     if not invite:
         return jsonify({"msg": "Davet kodu bulunamadı"}), 404
 
-    invite.is_active = False
-    db.session.commit()
+    # Premium Mantık: Eğer kod hiç kullanılmadıysa veritabanından tamamen sileriz.
+    # Kullanıldıysa, veritabanı bütünlüğü için sadece pasife çekeriz.
+    # User modelinde invite_code_id yok, InviteUsage tablosuna bakmalıyız.
+    from app.models.invite_code import InviteUsage
+    usage_count = InviteUsage.query.filter_by(invite_code_id=code_id).count()
 
-    return jsonify({"msg": "Davet kodu iptal edildi"})
+    if usage_count == 0:
+        db.session.delete(invite)
+        db.session.commit()
+        return jsonify({"msg": "Davet kodu kalıcı olarak silindi"})
+    else:
+        invite.is_active = False
+        db.session.commit()
+        return jsonify({"msg": "Kod kullanıldığı için silinemedi, ancak kullanıma kapatıldı"})
 
 
 @admin_bp.route('/users', methods=['GET'])
@@ -230,6 +256,8 @@ def toggle_admin(user_id):
         "msg": f"'{user.username}' artık {'admin' if user.is_admin else 'normal kullanıcı'}",
         "is_admin": user.is_admin
     })
+
+
 @admin_bp.route('/users/<int:user_id>', methods=['DELETE'])
 @jwt_required()
 def delete_user(user_id):
