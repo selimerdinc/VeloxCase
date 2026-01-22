@@ -148,6 +148,10 @@ export const useAuth = () => {
 
                 localStorage.setItem(config.TOKEN_KEY, receivedToken);
                 localStorage.setItem('veloxcase_is_admin', receivedIsAdmin.toString());
+
+                // --- SYNCHRONOUS HEADER SETTING ---
+                axios.defaults.headers.common['Authorization'] = `Bearer ${receivedToken}`;
+
                 setToken(receivedToken);
                 setIsAdmin(receivedIsAdmin);
                 setAuthKey(prev => prev + 1);
