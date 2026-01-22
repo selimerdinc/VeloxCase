@@ -52,7 +52,15 @@ echo ""
 echo "🐳 Docker container'ları başlatılıyor..."
 
 # Production compose ile başlat
-docker-compose -f docker-compose.prod.yml up -d --build
+# Low-RAM optimizasyonu: Sırayla build al
+echo "🏗️  Backend derleniyor..."
+docker-compose -f docker-compose.prod.yml build backend
+
+echo "🏗️  Frontend derleniyor..."
+docker-compose -f docker-compose.prod.yml build frontend
+
+echo "🚀 Servisler başlatılıyor..."
+docker-compose -f docker-compose.prod.yml up -d
 
 echo ""
 echo -e "${GREEN}✅ VeloxCase başarıyla deploy edildi!${NC}"
