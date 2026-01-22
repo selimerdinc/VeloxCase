@@ -12,6 +12,9 @@ jobs:
       - name: Deploy to Server via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_KEY }}
           command_timeout: 30m
           script: |
             # Create Swap if not exists (Prevention for OOM on Free Tier)
