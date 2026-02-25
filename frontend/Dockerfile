@@ -6,8 +6,8 @@ WORKDIR /app
 
 # Bağımlılıkları kopyala ve yükle
 COPY package*.json ./
-# Low-RAM optimizasyonu: npm ci daha hızlı ve temiz kurulum yapar
-RUN npm ci --no-audit --no-fund
+# npm ci bazen lockfile versiyonu nedeniyle hata verebiliyor, npm install --production daha güvenli
+RUN npm install --no-audit --no-fund
 
 # Kaynak kodları kopyala
 COPY . .
