@@ -17,6 +17,7 @@ ENV REACT_APP_API_URL=${REACT_APP_API_URL}
 # Low-RAM ve CI optimizasyonları
 ENV GENERATE_SOURCEMAP=false
 ENV CI=false
+ENV NODE_OPTIONS="--max-old-space-size=1536"
 
 # Production build
 RUN npm run build
