@@ -187,10 +187,16 @@ def analyze_task():
             custom_prompt = custom_prompt_setting.value if custom_prompt_setting else None
             
             jira_desc = info.get('description', '') or ''
-            # Yorumları ayrıca çek
+            # Jira v3'te yorumlar dict (ADF) veya string gelebilir, güvenli hale getir
             jira_comments = ''
             for c in qc.get_comments(key):
-                jira_comments += c.get('body', '') + '\n'
+                body = c.get('body', '')
+                if isinstance(body, dict):
+                    # ADF formatı ise basitçe içindeki metinleri topla (veya stringe çevir)
+                    # Gerçek bir ADF parser yerine şimdilik basit bir kontrol
+                    jira_comments += str(body) + '\n'
+                else:
+                    jira_comments += str(body) + '\n'
             
             ai_result = ai_service.generate_test_cases(
                 info['summary'], 

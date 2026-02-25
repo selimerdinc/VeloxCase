@@ -249,6 +249,11 @@ class VeloxCaseSyncService:
             logger.error(f"Add Jira Link Exception: {e}")
 
     def parse_cases(self, html_txt):
+        if not html_txt: return []
+        # Eğer html_txt bir string değilse (örn. ADF dict), stringe çevir
+        if not isinstance(html_txt, str):
+            html_txt = str(html_txt)
+            
         txt = html_txt.replace('<br>', '\n').replace('<br/>', '\n').replace('</p>', '\n').replace('</div>', '\n')
         clean_text = re.sub(r'<[^>]+>', '', txt)
         clean_text = html.unescape(clean_text)
