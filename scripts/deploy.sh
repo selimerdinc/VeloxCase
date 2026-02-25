@@ -55,9 +55,10 @@ echo "🐳 Docker container'ları başlatılıyor..."
 echo "🏗️  Backend derleniyor..."
 docker-compose -f docker-compose.prod.yml build backend
 
-echo "🏗️  Frontend derleniyor (CI=false)..."
-# CI=false ekleyerek lint uyarılarının build'i bozmasını engelliyoruz
-export CI=false
+echo "🏗️  Frontend derleniyor (CI=true)..."
+# CI=true ekleyerek lint uyarılarının build'i bozmasını engelliyoruz
+# Low-resource sunucularda build alırken kaynak tüketimini minimize eder
+export CI=true
 docker-compose -f docker-compose.prod.yml build frontend
 
 echo "🚀 Servisler başlatılıyor..."

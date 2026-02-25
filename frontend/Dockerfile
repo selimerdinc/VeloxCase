@@ -6,7 +6,8 @@ WORKDIR /app
 
 # Bağımlılıkları kopyala ve yükle
 COPY package*.json ./
-RUN npm install
+# Low-RAM optimizasyonu: npm ci daha hızlı ve temiz kurulum yapar
+RUN npm ci --no-audit --no-fund
 
 # Kaynak kodları kopyala
 COPY . .
@@ -14,10 +15,14 @@ COPY . .
 # Build argumentleri
 ARG REACT_APP_API_URL
 ENV REACT_APP_API_URL=${REACT_APP_API_URL}
+
 # Low-RAM ve CI optimizasyonları
 ENV GENERATE_SOURCEMAP=false
-ENV CI=false
-ENV NODE_OPTIONS="--max-old-space-size=1536"
+ENV CI=true
+# RAM kullanımını agresif bir şekilde kısıtla (Oracle Free Tier için 512MB-1GB ideal)
+ENV NODE_OPTIONS="--max-old-space-size=1024"
+# Webpack/TSC'nin fazladan bellek harcamasını önlemek için
+ENV DISABLE_ESLINT_PLUGIN=true
 
 # Production build
 RUN npm run build
