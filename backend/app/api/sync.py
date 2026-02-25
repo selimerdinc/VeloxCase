@@ -178,12 +178,12 @@ def analyze_task():
         from app.services.ai_service import AIService
         from app.models.setting import Setting
         
-        ai_enabled_setting = Setting.query.filter_by(user_id=user.id, key='AI_ENABLED').first()
+        ai_enabled_setting = Setting.query.filter_by(user_id=current_user.id, key='AI_ENABLED').first()
         ai_enabled = ai_enabled_setting and ai_enabled_setting.value.lower() == 'true'
         
         if ai_enabled:
-            ai_service = AIService(user.id)
-            custom_prompt_setting = Setting.query.filter_by(user_id=user.id, key='AI_SYSTEM_PROMPT').first()
+            ai_service = AIService(current_user.id)
+            custom_prompt_setting = Setting.query.filter_by(user_id=current_user.id, key='AI_SYSTEM_PROMPT').first()
             custom_prompt = custom_prompt_setting.value if custom_prompt_setting else None
             
             jira_desc = info.get('description', '') or ''
@@ -325,7 +325,7 @@ def sync():
                     images_count=res.get('images', 0),
                     status=status_text,
                     case_name=res['case_name'],
-                    user_id=user.id
+                    user_id=current_user.id
                 ))
         except Exception as e:
             logger.error(f"Process single task error ({task_key}): {e}")
